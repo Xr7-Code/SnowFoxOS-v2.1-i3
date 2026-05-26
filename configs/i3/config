@@ -53,7 +53,7 @@ exec --no-startup-id thunar --daemon &
 
 # ── Keyboard Shortcuts ──────────────────────────────────────
 bindsym $mod+Return exec $term
-bindsym $mod+space exec rofi -show drun -theme ~/.config/rofi/config.rasi
+bindsym $mod+space exec rofi -show drun -show-icons -theme ~/.config/rofi/config.rasi
 bindsym $mod+Tab exec rofi -show window -theme ~/.config/rofi/config.rasi
 bindsym $mod+e exec thunar
 bindsym $mod+n exec ~/.config/snowfox-network.sh

@@ -69,7 +69,7 @@ SnowFoxOS ist darauf ausgelegt nicht im Weg zu stehen und so wenig Ressourcen wi
 - `tlp` optimiert CPU, USB und Festplatten-Powermanagement automatisch
 - Unnötige System-Dienste werden beim Install deaktiviert (cups-browsed, avahi, ModemManager, colord)
 - Kein Display Manager — i3 startet direkt von TTY1
-- Picom läuft im `xrender`-Modus ohne vsync, Schatten oder Fading — nur das Nötigste
+- Picom läuft im `glx`-Modus mit aktivierten Schatten für Fenster und Panels (Polybar)
 
 | Zustand | RAM (ungefähr) |
 |---|---|
@@ -224,7 +224,7 @@ Nach dem Neustart startet i3 automatisch von TTY1.
 | Terminal | kitty |
 | Browser | zen-browser |
 | Audio | pipewire + wireplumber |
-| Compositor | picom (xrender, minimal) |
+| Compositor | picom (glx, with shadows) |
 | Benachrichtigungen | dunst |
 | Dateimanager | thunar |
 | Bildschirmsperre | i3lock + xss-lock |

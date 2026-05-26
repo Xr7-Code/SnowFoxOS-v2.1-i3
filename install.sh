@@ -100,7 +100,7 @@ apt-get install -y \
     lz4 \
     gnupg \
     pciutils usbutils \
-    htop btop neofetch \
+    htop btop neofetch irqbalance \
     bash-completion \
     xdg-utils \
     xdg-user-dirs \
@@ -156,7 +156,7 @@ if [[ $XANMOD_EXIT -eq 0 ]]; then
     CURRENT_KERNEL=$(uname -r)
     # GRUB für Plymouth (Boot-Logo) vorbereiten
     if [[ -f /etc/default/grub ]]; then
-        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 quiet splash amdgpu.sg_display=0"/' /etc/default/grub
+        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 quiet splash nvidia-drm.modeset=1"/' /etc/default/grub
         sed -i 's/quiet splash quiet splash/quiet splash/g' /etc/default/grub
         sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
     fi
@@ -264,10 +264,6 @@ EOF
 elif $HAS_AMD; then
     info "AMD GPU erkannt — Nutze Mesa..."
     apt-get install -y firmware-amd-graphics mesa-vulkan-drivers mesa-va-drivers
-    
-    # Stability Fix für AMD Freezes (Scatter/Gather Bug)
-    mkdir -p /etc/modprobe.d
-    echo "options amdgpu sg_display=0" > /etc/modprobe.d/amdgpu-stability.conf
     success "AMD Stack installiert"
 else
     info "Intel Grafik erkannt..."
@@ -321,6 +317,7 @@ apt-get install -y \
     qt5ct \
     qt6ct \
     qt5-style-plugins \
+    adwaita-qt \
     xsettingsd \
     lxpolkit \
     lxappearance \
@@ -618,11 +615,17 @@ systemctl enable zramswap earlyoom tlp 2>/dev/null || true
 cat > /etc/sysctl.d/99-snowfox.conf << 'EOF'
 vm.swappiness=10
 vm.vfs_cache_pressure=50
+vm.dirty_background_ratio=3
+vm.dirty_ratio=6
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.ipv6.conf.all.use_tempaddr=2
 net.ipv6.conf.default.use_tempaddr=2
 EOF
+
+# root-Partition auf noatime setzen für weniger I/O-Overhead
+info "Optimiere fstab (noatime)..."
+sed -i 's/errors=remount-ro/errors=remount-ro,noatime/g' /etc/fstab
 
 grep -q "tmpfs /tmp" /etc/fstab || \
     echo "tmpfs /tmp tmpfs defaults,noatime,mode=1777 0 0" >> /etc/fstab
@@ -647,8 +650,13 @@ cat > /etc/NetworkManager/conf.d/99-snowfox-privacy.conf << 'EOF'
 [device]
 wifi.scan-rand-mac-address=yes
 [connection]
-wifi.cloned-mac-address=random
-ethernet.cloned-mac-address=random
+wifi.cloned-mac-address=stable-privacy
+ethernet.cloned-mac-address=stable-privacy
+EOF
+
+cat > /etc/NetworkManager/conf.d/99-snowfox-wifi-powersave.conf << 'EOF'
+[connection]
+wifi.powersave=2 # 2 = off, 3 = on (default)
 EOF
 
 mkdir -p /etc/systemd/resolved.conf.d
@@ -656,10 +664,10 @@ cat > /etc/systemd/resolved.conf.d/snowfox.conf << 'EOF'
 [Resolve]
 DNS=1.1.1.1#cloudflare-dns.com 9.9.9.9#dns.quad9.net
 FallbackDNS=8.8.8.8
-DNSSEC=yes
-DNSOverTLS=yes
+DNSSEC=allow-downgrade
+DNSOverTLS=opportunistic
 EOF
-systemctl enable systemd-resolved 2>/dev/null || true
+systemctl enable systemd-resolved irqbalance 2>/dev/null || true
 
 for svc in avahi-daemon cups-browsed ModemManager colord; do
     systemctl disable "$svc" 2>/dev/null || true
@@ -784,6 +792,20 @@ Net/IconThemeName "Papirus-Dark"
 Gtk/CursorThemeName "Adwaita"
 XEOF
 
+# ── Qt Styling (Qt5 & Qt6) ───────────────────────────────────
+info "Konfiguriere Qt-Styling für einheitliches Design..."
+mkdir -p "$CONFIG_DIR/qt5ct" "$CONFIG_DIR/qt6ct"
+
+cat > "$CONFIG_DIR/qt5ct/qt5ct.conf" << Q5EOF
+[Appearance]
+style=gtk2
+Q5EOF
+
+cat > "$CONFIG_DIR/qt6ct/qt6ct.conf" << Q6EOF
+[Appearance]
+style=adwaita-dark
+Q6EOF
+
 # ── Neofetch Konfiguration ───────────────────────────────────
 cat > "$CONFIG_DIR/neofetch/config.conf" << EOF
 
@@ -829,6 +851,21 @@ ASCIIEOF
 if [[ -d "$SCRIPT_DIR/configs" ]]; then
     cp -r "$SCRIPT_DIR/configs/"* "$CONFIG_DIR/"
     success "Konfigurationsdateien kopiert"
+
+    # Visuelles Polishing: Rofi Icons & Picom Schatten
+    info "Wende visuelle Optimierungen an (Icons & Schatten)..."
+    sed -i 's/show-icons: .*/show-icons: false;/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
+    sed -i 's/icon-theme: .*/icon-theme: "Papirus-Dark";/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
+    
+    if [[ -f "$CONFIG_DIR/picom/picom.conf" ]]; then
+        sed -i 's/backend = .*/backend = "glx";/' "$CONFIG_DIR/picom/picom.conf"
+        sed -i 's/shadow = .*/shadow = true;/' "$CONFIG_DIR/picom/picom.conf"
+        # Polybar explizit von der Shadow-Exclusion Liste entfernen, falls vorhanden
+        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Polybar."//g' "$CONFIG_DIR/picom/picom.conf"
+        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Rofi."//g' "$CONFIG_DIR/picom/picom.conf"
+        # Wintypes-Overrides anpassen, damit Panels (Docks) und Menüs Schatten werfen
+        sed -i 's/dock = { shadow = false; }/dock = { shadow = true; }/g' "$CONFIG_DIR/picom/picom.conf"
+    fi
 else
     warn "configs/-Verzeichnis nicht gefunden"
 fi

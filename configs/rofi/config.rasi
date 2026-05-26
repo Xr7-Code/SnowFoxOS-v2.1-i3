@@ -1,5 +1,11 @@
 /* SnowFoxOS â€” Rofi Theme */
 
+configuration {
+    modi:            "drun,run"; /* Icons werden für drun über die i3-Konfiguration aktiviert */
+    show-icons:      false;      /* Global: Icons standardmäßig deaktivieren, um Einrückungen im 'run'-Modus und 'dmenu' zu vermeiden */
+    icon-theme:      "Papirus-Dark";
+}
+
 * {
     font:            "Inter 11";
     bg:              #141414;

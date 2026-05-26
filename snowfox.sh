@@ -33,20 +33,22 @@ cmd_status() {
     UPTIME=$(uptime -p | sed 's/up //')
     echo -e "${GRAY}  Uptime:     ${BOLD}${UPTIME}${RESET}"
 
-    # RAM
-    RAM_TOTAL=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo)
-    RAM_FREE=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
+    # RAM (Effizienteres Auslesen ohne mehrfaches awk)
+    while read -r key val _; do
+        case $key in
+            MemTotal:) RAM_TOTAL=$((val / 1024)) ;;
+            MemAvailable:) RAM_FREE=$((val / 1024)) ;;
+        esac
+    done < /proc/meminfo
     RAM_USED=$((RAM_TOTAL - RAM_FREE))
     echo -e "${GRAY}  RAM:        ${BOLD}${RAM_USED}MB used / ${RAM_TOTAL}MB total (${RAM_FREE}MB free)${RESET}"
 
-    # Disk
-    DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
-    DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
-    DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
-    echo -e "${GRAY}  Disk:       ${BOLD}${DISK_USED} used / ${DISK_TOTAL} total (${DISK_FREE} free)${RESET}"
+    # Disk (Ein Aufruf für alle Werte)
+    read -r d_total d_used d_free < <(df -h / --output=size,used,avail | tail -1)
+    echo -e "${GRAY}  Disk:       ${BOLD}${d_used} used / ${d_total} total (${d_free} free)${RESET}"
 
     # CPU
-    CPU=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
+    CPU=$(grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //')
     echo -e "${GRAY}  CPU:        ${BOLD}${CPU}${RESET}"
 
     # GPU Modus
@@ -56,10 +58,9 @@ cmd_status() {
     fi
 
     # Netzwerk
-    IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')
-    IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}')
-    if [[ -n "$IP" ]]; then
-        echo -e "${GRAY}  Netzwerk:   ${BOLD}${IP} (${IFACE})${RESET}"
+    read -r _ _ _ _ iface _ ip _ < <(ip route get 1.1.1.1 2>/dev/null)
+    if [[ -n "$ip" ]]; then
+        echo -e "${GRAY}  Netzwerk:   ${BOLD}${ip} (${iface})${RESET}"
     else
         echo -e "${GRAY}  Netzwerk:   ${BOLD}nicht verbunden${RESET}"
     fi
@@ -262,39 +263,9 @@ cmd_download() {
         exit 1
     fi
 
-    QUERY="$*"
-    if [[ -z "$QUERY" ]]; then
-        read -rp "$(echo -e ${PURPLE}${BOLD}"Suche zum Download: "${RESET})" QUERY
-        [[ -z "$QUERY" ]] && return
-    fi
-
-    if [[ "$QUERY" =~ ^http ]]; then
-        URL="$QUERY"
-    else
-        fox "Suche auf YouTube: ${BOLD}$QUERY${RESET}..."
-        
-        # Holt Top 5 Ergebnisse (Titel|ID)
-        mapfile -t RESULTS < <(yt-dlp --print "%(title)s|%(id)s" --flat-playlist "ytsearch5:$QUERY" 2>/dev/null)
-        
-        if [[ ${#RESULTS[@]} -eq 0 ]]; then
-            err "Keine Ergebnisse gefunden."
-            return
-        fi
-
-        divider
-        i=1
-        for res in "${RESULTS[@]}"; do
-            title=$(echo "$res" | cut -d'|' -f1)
-            echo -e "  ${CYAN}$i${RESET}) $title"
-            ((i++))
-        done
-        divider
-
-        read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-5]: "${RESET})" CHOICE
-        [[ -z "$CHOICE" || ! "$CHOICE" =~ ^[1-5]$ ]] && return
-        
-        ID=$(echo "${RESULTS[$((CHOICE-1))]}" | cut -d'|' -f2)
-        URL="https://www.youtube.com/watch?v=$ID"
+    if [[ -z "$1" ]]; then
+        err "Verwendung: snowfox download <URL>"
+        exit 1
     fi
 
     fox "Was möchtest du herunterladen?"
@@ -308,37 +279,13 @@ cmd_download() {
     mkdir -p "$OUTDIR"
 
     case "$FORMAT" in
-        1) yt-dlp -o "$OUTDIR/%(title)s.%(ext)s" "$URL" ;;
-        2) yt-dlp -x --audio-format mp3 -o "$OUTDIR/%(title)s.%(ext)s" "$URL" ;;
-        3) yt-dlp -x --audio-format opus -o "$OUTDIR/%(title)s.%(ext)s" "$URL" ;;
+        1) yt-dlp -o "$OUTDIR/%(title)s.%(ext)s" "$1" ;;
+        2) yt-dlp -x --audio-format mp3 -o "$OUTDIR/%(title)s.%(ext)s" "$1" ;;
+        3) yt-dlp -x --audio-format opus -o "$OUTDIR/%(title)s.%(ext)s" "$1" ;;
         *) err "Ungültige Auswahl." ;;
     esac
 
     ok "Gespeichert in: $OUTDIR"
-}
-
-# ============================================================
-# snowfox fetch (Multi-Part Download)
-# ============================================================
-cmd_fetch() {
-    if ! command -v aria2c &>/dev/null; then
-        err "aria2 nicht gefunden. Installiere es mit: sudo apt install aria2"
-        exit 1
-    fi
-
-    if [[ -z "$1" ]]; then
-        err "Verwendung: snowfox fetch <URL>"
-        exit 1
-    fi
-
-    URL="$1"
-    OUTDIR="$HOME/Downloads"
-    mkdir -p "$OUTDIR"
-
-    fox "Starte Multi-Part Download (16 Verbindungen)..."
-    aria2c -x 16 -s 16 -d "$OUTDIR" --continue=true --summary-interval=5 "$URL"
-
-    ok "Download abgeschlossen in: $OUTDIR"
 }
 
 # ============================================================
@@ -499,14 +446,97 @@ cmd_tip() {
 }
 
 # ============================================================
+# snowfox cleanup
+# ============================================================
+cmd_cleanup() {
+    fox "Starte Systembereinigung..."
+    divider
+
+    info "Entferne nicht mehr benötigte Pakete und Konfigurationsdateien..."
+    sudo apt-get autoremove --purge -y
+    ok "Pakete bereinigt."
+
+    info "Leere den APT-Cache..."
+    sudo apt-get clean
+    ok "APT-Cache geleert."
+
+    info "Bereinige temporäre Dateien im System..."
+    sudo rm -rf /tmp/*
+    ok "/tmp geleert."
+
+    info "Überprüfe auf alte Kernel-Versionen (manuelle Bereinigung empfohlen):"
+    dpkg -l | grep -E 'linux-image-[0-9]|linux-headers-[0-9]' | grep -v "$(uname -r)" | awk '{print $2}'
+    warn "Alte Kernel können mit 'sudo apt-get purge <paketname>' entfernt werden."
+    warn "Sei vorsichtig! Entferne niemals den aktuell laufenden Kernel."
+
+    info "Bereinige Benutzer-Cache-Dateien (optional, kann Platz freigeben):"
+    warn "Dies löscht alle Cache-Dateien in ~/.cache. Programme müssen diese neu erstellen."
+    read -rp "$(echo -e ${PURPLE}${BOLD}"Möchtest du ~/.cache leeren? [j/n]: "${RESET})" CONFIRM
+    [[ "$CONFIRM" =~ ^[jJ]$ ]] && rm -rf "$HOME/.cache/*" && ok "~/.cache geleert." || info "~/.cache wurde nicht geleert."
+    divider
+    ok "Bereinigung abgeschlossen."
+}
+
+# ============================================================
+# snowfox logs (Fehlersuche)
+# ============================================================
+cmd_logs() {
+    fox "Zeige die letzten Systemfehler (Journalctl)..."
+    divider
+    # Zeigt nur Fehler (Priority 3) seit dem letzten Boot
+    journalctl -p 3 -xb --no-hostname --no-pager | tail -n 20
+    divider
+    info "Tipp: Nutze 'journalctl -f' für Live-Logs."
+}
+
+# ============================================================
+# snowfox health (System-Check)
+# ============================================================
+cmd_health() {
+    fox "Führe System-Gesundheitscheck aus..."
+    divider
+    
+    # 1. Fehlgeschlagene Dienste
+    FAILED_UNITS=$(systemctl --failed --quiet | grep "loaded" | wc -l)
+    if [ "$FAILED_UNITS" -eq 0 ]; then
+        ok "Alle Systemd-Dienste laufen korrekt."
+    else
+        warn "$FAILED_UNITS Dienst(e) sind fehlgeschlagen! (systemctl --failed)"
+    fi
+
+    # 2. Paketstatus
+    BROKEN=$(dpkg -l | grep -c "^i[^i]")
+    if [ "$BROKEN" -eq 0 ]; then
+        ok "Keine defekten Pakete gefunden."
+    else
+        err "$BROKEN defekte(s) Paket(e) erkannt! (sudo apt install -f)"
+    fi
+
+    # 3. Temperatur (CPU)
+    TEMP=$(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | head -n1)
+    if [ -z "$TEMP" ]; then
+        warn "Temperatursensoren nicht lesbar."
+    else
+        TEMP_C=$((TEMP / 1000))
+        if [ "$TEMP_C" -lt 75 ]; then
+            ok "CPU Temperatur: ${TEMP_C}°C (Normal)"
+        else
+            warn "CPU Temperatur: ${TEMP_C}°C (Heiß!)"
+        fi
+    fi
+    
+    divider
+}
+
+# ============================================================
 # snowfox ai
 # ============================================================
 SNOWFOX_SYSTEM_PROMPT='Du bist die eingebaute KI von SnowFoxOS — einem minimalen, schnellen und privatsphäre-fokussierten Linux-Desktop auf Basis von Debian 12.
 
 Du kennst dieses System in- und auswendig:
 - Desktop: i3 (X11 Tiling Window Manager) + Polybar + Rofi + Dunst + i3lock
-- Terminal: Kitty | Browser: Zen Browser | Audio: PipeWire | Dateimanager: Thunar
-- Wichtige Shortcuts: Super+Return=Terminal, Super+Tab=Fensterwechsel, Super+Space=Rofi, Super+E=Thunar, Super+L=Sperren, Super+Q=Schließen, Super+Shift+E=Powermenu, Print=Screenshot
+- Terminal: Kitty | Browser: Brave | Audio: PipeWire | Dateimanager: Thunar
+- Wichtige Shortcuts: Super+Return=Terminal, Super+Space=Wofi, Super+B=Brave, Super+E=Thunar, Super+L=Sperren, Super+Q=Schließen, Super+Shift+E=Powermenu, Print=Screenshot
 - CLI Tool: snowfox — mit Befehlen: status, update, gpu, audit, airmode, kill, download, stream, pass, tip, ai, help
 - GPU: automatische Erkennung, envycontrol für Hybrid-Systeme
 - Performance: zram (lz4, 50%), swappiness=10, minimale Dienste
@@ -595,16 +625,17 @@ cmd_help() {
     echo -e "  ${CYAN}${BOLD}snowfox update${RESET}              — System aktualisieren"
     echo -e "  ${CYAN}${BOLD}snowfox gpu${RESET}                 — GPU-Modus wechseln (Hybrid)"
     echo -e "  ${CYAN}${BOLD}snowfox audit${RESET}               — aktive Netzwerkverbindungen"
+    echo -e "  ${CYAN}${BOLD}snowfox health${RESET}              — System-Gesundheitscheck"
+    echo -e "  ${CYAN}${BOLD}snowfox logs${RESET}                — Systemfehler anzeigen"
     echo -e "  ${CYAN}${BOLD}snowfox autostart [list|enable|disable]${RESET} — Autostart verwalten"
     echo -e "  ${CYAN}${BOLD}snowfox airmode [on|off|status]${RESET} — Funk komplett deaktivieren"
     echo -e "  ${CYAN}${BOLD}snowfox kill [mic|cam|all|restore]${RESET} — Hardware deaktivieren"
-    echo -e "  ${CYAN}${BOLD}snowfox download [Suche/URL]${RESET} — Video/Audio suchen oder via URL herunterladen"
-    echo -e "  ${CYAN}${BOLD}snowfox fetch <URL>${RESET}          — Highspeed Multi-Part Download via aria2"
-    echo -e "  ${CYAN}${BOLD}snowfox stream [Suche/URL]${RESET}   — Video/Audio suchen oder via URL streamen"
+    echo -e "  ${CYAN}${BOLD}snowfox download <URL>${RESET}      — Video/Audio herunterladen"
+    echo -e "  ${CYAN}${BOLD}snowfox stream <URL>${RESET}        — URL direkt streamen"
     echo -e "  ${CYAN}${BOLD}snowfox pass [add|get|list|remove]${RESET} — Passwort-Manager"
     echo -e "  ${CYAN}${BOLD}snowfox tip${RESET}                 — Sicherheitstipp"
+    echo -e "  ${CYAN}${BOLD}snowfox cleanup${RESET}             — Systembereinigung"
     echo -e "  ${CYAN}${BOLD}snowfox network${RESET}             — Netzwerk-Manager (Wofi)"
-    echo -e "  ${CYAN}${BOLD}snowfox wallpaper${RESET}           — Hintergrundbild wechseln"
     echo -e "  ${CYAN}${BOLD}snowfox ai${RESET}                  — Offline-KI"
     echo -e "  ${CYAN}${BOLD}snowfox help${RESET}                — diese Hilfe"
     echo ""
@@ -804,10 +835,10 @@ cmd_profile() {
 # snowfox start
 # ============================================================
 cmd_start() {
-    SWAY_CONFIG="$HOME/.config/sway/config"
+    I3_CONFIG="$HOME/.config/i3/config"
 
-    # Alle exec-Zeilen aus sway config lesen
-    ENTRIES=$(grep -n "^exec " "$SWAY_CONFIG" 2>/dev/null | grep -v "exec_always")
+    # Alle exec-Zeilen aus i3 config lesen
+    ENTRIES=$(grep -n "^exec " "$I3_CONFIG" 2>/dev/null | grep -v "exec_always")
 
     if [[ -z "$ENTRIES" ]]; then
         warn "Keine Autostart-Einträge gefunden."
@@ -824,12 +855,12 @@ cmd_start() {
                 LINE_NUM=$(echo "$entry" | cut -d: -f1)
                 CMD=$(echo "$entry" | cut -d: -f2- | sed 's/^exec //')
                 # Prüfen ob auskommentiert
-                COMMENTED=$(grep -c "^#.*exec.*$(echo "$CMD" | cut -d' ' -f1)" "$SWAY_CONFIG" 2>/dev/null || echo 0)
+                COMMENTED=$(grep -c "^#.*exec.*$(echo "$CMD" | cut -d' ' -f1)" "$I3_CONFIG" 2>/dev/null || echo 0)
                 echo -e "  ${GREEN}${BOLD}[AN]${RESET}  ${CYAN}${CMD}${RESET}"
             done <<< "$ENTRIES"
 
             # Auskommentierte exec-Zeilen
-            DISABLED=$(grep -n "^#exec " "$SWAY_CONFIG" 2>/dev/null)
+            DISABLED=$(grep -n "^#exec " "$I3_CONFIG" 2>/dev/null)
             if [[ -n "$DISABLED" ]]; then
                 while IFS= read -r entry; do
                     CMD=$(echo "$entry" | cut -d: -f2- | sed 's/^#exec //')
@@ -846,10 +877,10 @@ cmd_start() {
                 err "Verwendung: snowfox start disable <programm>"
                 exit 1
             fi
-            if grep -q "^exec.*$2" "$SWAY_CONFIG"; then
-                sed -i "s|^exec \(.*$2.*\)|#exec \1|" "$SWAY_CONFIG"
-                ok "$2 deaktiviert — wirksam nach: swaymsg reload"
-                swaymsg reload 2>/dev/null || true
+            if grep -q "^exec.*$2" "$I3_CONFIG"; then
+                sed -i "s|^exec \(.*$2.*\)|#exec \1|" "$I3_CONFIG"
+                ok "$2 deaktiviert — wirksam nach: i3-msg reload"
+                i3-msg reload 2>/dev/null || true
             else
                 err "$2 nicht gefunden oder bereits deaktiviert"
             fi
@@ -859,10 +890,10 @@ cmd_start() {
                 err "Verwendung: snowfox start enable <programm>"
                 exit 1
             fi
-            if grep -q "^#exec.*$2" "$SWAY_CONFIG"; then
-                sed -i "s|^#exec \(.*$2.*\)|exec \1|" "$SWAY_CONFIG"
-                ok "$2 aktiviert — wirksam nach: swaymsg reload"
-                swaymsg reload 2>/dev/null || true
+            if grep -q "^#exec.*$2" "$I3_CONFIG"; then
+                sed -i "s|^#exec \(.*$2.*\)|exec \1|" "$I3_CONFIG"
+                ok "$2 aktiviert — wirksam nach: i3-msg reload"
+                i3-msg reload 2>/dev/null || true
             else
                 err "$2 nicht gefunden oder bereits aktiv"
             fi
@@ -877,11 +908,13 @@ case "$1" in
     update)   cmd_update ;;
     gpu)      cmd_gpu ;;
     audit)    cmd_audit ;;
+    health)   cmd_health ;;
+    logs)     cmd_logs ;;
     airmode)  cmd_airmode "$2" ;;
     kill)     cmd_kill "$2" ;;
     download) cmd_download "$2" ;;
-    fetch)    cmd_fetch "$2" ;;
     stream)   cmd_stream "$2" ;;
+    cleanup)  cmd_cleanup ;;
     pass)     cmd_pass "$2" "$3" ;;
     tip)      cmd_tip ;;
     ai)       cmd_ai ;;
@@ -889,7 +922,6 @@ case "$1" in
     profile)  cmd_profile "$2" ;;
     autostart)    cmd_start "$2" "$3" ;;
     network)  exec ~/.config/snowfox-network.sh ;;
-    wallpaper) exec ~/.config/snowfox-wallpaper.sh ;;
     help|"")  cmd_help ;;
     *)
         err "Unbekannter Befehl: $1"
