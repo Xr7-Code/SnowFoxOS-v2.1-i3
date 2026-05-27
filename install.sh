@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  SnowFoxOS v2.1 — Installer
+#  SnowFoxOS v2.2 — Installer
 #  Basis: Debian 12 (Bookworm) minimal
 #  Desktop: i3 + Polybar + Rofi + Dunst + i3lock
 #  Ausführen: sudo bash install.sh
@@ -285,11 +285,13 @@ success "GPU-Treiber eingerichtet"
 # ============================================================
 step "3/10 — i3 + Polybar + Rofi + Dunst + i3lock"
 
+# i3lock-color wird oft via Build-Deps installiert, da es nicht im Standard-Repo von Debian 12 ist.
+# Wir installieren die Abhängigkeiten für das manuelle Paket-Management oder den Build.
 wait_apt
 apt-get install -y \
     i3 \
     i3status \
-    i3lock \
+    i3lock-color \
     polybar \
     rofi \
     dunst \
@@ -314,8 +316,10 @@ apt-get install -y \
     fonts-font-awesome \
     papirus-icon-theme \
     arc-theme \
-    qt5ct \
-    qt6ct \
+    qt5ct qt6ct \
+    qt5-style-kvantum \
+    qt6-style-kvantum \
+    kvantum \
     qt5-style-plugins \
     adwaita-qt \
     xsettingsd \
@@ -325,6 +329,8 @@ apt-get install -y \
     xss-lock \
     xserver-xorg-input-libinput \
     diodon \
+    joystick \
+    jstest-gtk \
     cups cups-bsd cups-client \
     printer-driver-splix
 
@@ -363,7 +369,7 @@ export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
 
 # Theme & Dark Mode Konfiguration
 export GTK_THEME=Arc-Dark
-export QT_QPA_PLATFORMTHEME=qt5ct
+export QT_QPA_PLATFORMTHEME=kvantum
 export _JAVA_AWT_WM_NONREPARENTING=1
 
 # Globaler Dark Mode für GTK4/Electron/Modern Apps
@@ -733,10 +739,10 @@ mkdir -p "$TARGET_HOME/Pictures/wallpapers"
 # ── Distro-Identität ─────────────────────────────────────────
 # /etc/os-release: bestimmt was neofetch, fastfetch usw. anzeigen
 cat > /etc/os-release << 'EOF'
-PRETTY_NAME="SnowFoxOS 2.1"
+PRETTY_NAME="SnowFoxOS 2.2"
 NAME="SnowFoxOS"
-VERSION="2.1"
-VERSION_ID="2.1"
+VERSION="2.2"
+VERSION_ID="2.2"
 ID=snowfoxos
 ID_LIKE=debian
 HOME_URL="https://github.com/Xr7-Code/SnowFoxOS-v2-i3"
@@ -746,17 +752,17 @@ EOF
 # /etc/lsb-release — wird von manchen Tools gelesen
 cat > /etc/lsb-release << 'EOF'
 DISTRIB_ID=SnowFoxOS
-DISTRIB_RELEASE=2.1
+DISTRIB_RELEASE=2.2
 DISTRIB_CODENAME=fox
-DISTRIB_DESCRIPTION="SnowFoxOS 2.1"
+DISTRIB_DESCRIPTION="SnowFoxOS 2.2"
 EOF
 
 echo "snowfox"                  > /etc/hostname
-echo "SnowFoxOS 2.1"            > /etc/issue
-echo "SnowFoxOS 2.1 \n \l"      > /etc/issue.net
+echo "SnowFoxOS 2.2"            > /etc/issue
+echo "SnowFoxOS 2.2 \n \l"      > /etc/issue.net
 hostname snowfox 2>/dev/null || true
 
-success "Distro-Identität auf SnowFoxOS gesetzt"
+success "Distro-Identität auf SnowFoxOS v2.2 gesetzt"
 
 # ── Dark Mode & Theme Aktivierung ────────────────────────────
 info "Aktiviere Arc-Dark Design & Papirus Icons..."
@@ -857,14 +863,14 @@ if [[ -d "$SCRIPT_DIR/configs" ]]; then
     sed -i 's/show-icons: .*/show-icons: false;/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
     sed -i 's/icon-theme: .*/icon-theme: "Papirus-Dark";/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
     
-    if [[ -f "$CONFIG_DIR/picom/picom.conf" ]]; then
-        sed -i 's/backend = .*/backend = "glx";/' "$CONFIG_DIR/picom/picom.conf"
-        sed -i 's/shadow = .*/shadow = true;/' "$CONFIG_DIR/picom/picom.conf"
+    if [[ -f "$CONFIG_DIR/picom.conf" ]]; then
+        sed -i 's/backend = .*/backend = "glx";/' "$CONFIG_DIR/picom.conf"
+        sed -i 's/shadow = .*/shadow = true;/' "$CONFIG_DIR/picom.conf"
         # Polybar explizit von der Shadow-Exclusion Liste entfernen, falls vorhanden
-        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Polybar."//g' "$CONFIG_DIR/picom/picom.conf"
-        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Rofi."//g' "$CONFIG_DIR/picom/picom.conf"
+        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Polybar."//g' "$CONFIG_DIR/picom.conf"
+        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Rofi."//g' "$CONFIG_DIR/picom.conf"
         # Wintypes-Overrides anpassen, damit Panels (Docks) und Menüs Schatten werfen
-        sed -i 's/dock = { shadow = false; }/dock = { shadow = true; }/g' "$CONFIG_DIR/picom/picom.conf"
+        sed -i 's/dock = { shadow = false; }/dock = { shadow = true; }/g' "$CONFIG_DIR/picom.conf"
     fi
 else
     warn "configs/-Verzeichnis nicht gefunden"
