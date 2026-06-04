@@ -66,7 +66,6 @@ case "$CHOICE" in
         ;;
 
     *"Anordnung konfigurieren"*)
-        # Wähle Hauptmonitor
         NEW_PRIMARY=$(echo "$MONITORS" | rofi -dmenu \
             -p "Hauptmonitor wählen" \
             -theme ~/.config/rofi/config.rasi \
@@ -74,7 +73,6 @@ case "$CHOICE" in
             -lines 5)
         [[ -z "$NEW_PRIMARY" ]] && exit 0
 
-        # Position des zweiten Monitors
         OTHER=$(echo "$MONITORS" | grep -v "$NEW_PRIMARY" | head -1)
         if [[ -n "$OTHER" ]]; then
             POS=$(echo -e "Rechts von $NEW_PRIMARY\nLinks von $NEW_PRIMARY\nOben von $NEW_PRIMARY\nUnten von $NEW_PRIMARY\nAusschalten" | \
@@ -86,10 +84,10 @@ case "$CHOICE" in
 
             xrandr --output "$NEW_PRIMARY" --auto --primary
             case "$POS" in
-                *Rechts*)  xrandr --output "$OTHER" --auto --right-of "$NEW_PRIMARY" ;;
-                *Links*)   xrandr --output "$OTHER" --auto --left-of "$NEW_PRIMARY" ;;
-                *Oben*)    xrandr --output "$OTHER" --auto --above "$NEW_PRIMARY" ;;
-                *Unten*)   xrandr --output "$OTHER" --auto --below "$NEW_PRIMARY" ;;
+                *Rechts*)      xrandr --output "$OTHER" --auto --right-of "$NEW_PRIMARY" ;;
+                *Links*)       xrandr --output "$OTHER" --auto --left-of "$NEW_PRIMARY" ;;
+                *Oben*)        xrandr --output "$OTHER" --auto --above "$NEW_PRIMARY" ;;
+                *Unten*)       xrandr --output "$OTHER" --auto --below "$NEW_PRIMARY" ;;
                 *Ausschalten*) xrandr --output "$OTHER" --off ;;
             esac
             notify-send "🦊 SnowFox Display" "$NEW_PRIMARY ist jetzt primär"
@@ -100,7 +98,6 @@ case "$CHOICE" in
         ;;
 
     *)
-        # Einzelnen Monitor an/aus schalten
         MON=$(echo "$CHOICE" | awk '{print $1}')
         [[ -z "$MON" ]] && exit 0
         STATUS=$(xrandr | grep "^$MON" | grep -c "\*" || true)
@@ -114,5 +111,7 @@ case "$CHOICE" in
         ;;
 esac
 
-# i3 neu laden damit Workspaces angepasst werden
-i3-msg restart 2>/dev/null || true
+# i3 reload und Polybar auf primärem Monitor neu starten
+i3-msg reload 2>/dev/null || true
+sleep 0.5
+~/.config/polybar/launch.sh
