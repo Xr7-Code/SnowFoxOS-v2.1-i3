@@ -1,12 +1,10 @@
 #!/bin/bash
 # ============================================================
-#  SnowFoxOS v2.2 — Installer
+#  SnowFoxOS v2.1 — Installer
 #  Basis: Debian 12 (Bookworm) minimal
 #  Desktop: i3 + Polybar + Rofi + Dunst + i3lock
 #  Ausführen: sudo bash install.sh
 # ============================================================
-
-# Kein globales set -e — Fehler werden manuell behandelt
 
 PURPLE='\033[0;35m'
 ORANGE='\033[0;33m'
@@ -23,13 +21,13 @@ error()   { echo -e "${RED}${BOLD}[FEHLER]${RESET} $1"; exit 1; }
 step()    { echo -e "\n${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}";
             echo -e "${PURPLE}${BOLD}  $1${RESET}";
             echo -e "${PURPLE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"; }
+
 ask_install() {
     echo ""
     read -rp "$(echo -e ${PURPLE}${BOLD}"[SnowFox] $1 installieren? [j/n]: "${RESET})" choice
     [[ "$choice" =~ ^[jJ]$ ]]
 }
 
-# APT-Lock abwarten (verhindert Kollision mit unattended-upgrades)
 wait_apt() {
     local i=0
     while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock > /dev/null 2>&1; do
@@ -39,22 +37,23 @@ wait_apt() {
     done
 }
 
+# ── Root-Check ───────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     error "Bitte mit sudo ausführen: sudo bash install.sh"
 fi
 
-# Validierung der Basis-Distribution
+# ── Debian 12 Validierung ────────────────────────────────────
 if [[ ! -f /etc/debian_version ]] || ! grep -q "^12\." /etc/debian_version; then
-    warn "Dieses Script ist für Debian 12 (Bookworm) optimiert. Die Ausführung auf anderen Versionen kann zu Fehlern führen."
+    warn "Dieses Script ist für Debian 12 (Bookworm) optimiert."
 fi
 
+# ── Benutzer ermitteln ───────────────────────────────────────
 TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
 if [[ -z "$TARGET_USER" || "$TARGET_USER" == "root" ]]; then
     read -rp "Benutzername: " TARGET_USER
 fi
 TARGET_HOME="/home/$TARGET_USER"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 [[ ! -d "$TARGET_HOME" ]] && error "Home $TARGET_HOME nicht gefunden"
 
 info "Installiere für: ${BOLD}$TARGET_USER${RESET}"
@@ -65,6 +64,7 @@ sleep 1
 # ============================================================
 step "1/10 — System aktualisieren"
 
+# DKMS-Hooks temporär deaktivieren
 DKMS_HOOKS=(
     /etc/kernel/postinst.d/dkms
     /etc/kernel/prerm.d/dkms
@@ -74,6 +74,12 @@ for hook in "${DKMS_HOOKS[@]}"; do
     [[ -f "$hook" ]] && mv "$hook" "${hook}.snowfox-bak"
 done
 info "DKMS-Hooks für Installer-Lauf deaktiviert"
+
+# apt-daily deaktivieren — verhindert Boot-Verzögerungen und Lock-Konflikte
+systemctl disable apt-daily.service apt-daily.timer 2>/dev/null || true
+systemctl disable apt-daily-upgrade.service apt-daily-upgrade.timer 2>/dev/null || true
+systemctl stop apt-daily.service apt-daily-upgrade.service 2>/dev/null || true
+success "apt-daily deaktiviert"
 
 cat > /etc/apt/sources.list << 'EOF'
 deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
@@ -105,6 +111,7 @@ apt-get install -y \
     xdg-utils \
     xdg-user-dirs \
     rfkill \
+    iw wireless-tools \
     imagemagick \
     bc \
     xorg \
@@ -113,7 +120,8 @@ apt-get install -y \
     x11-xserver-utils \
     xclip \
     xdotool \
-    dbus-x11
+    dbus-x11 \
+    lm-sensors
 
 sudo -u "$TARGET_USER" xdg-user-dirs-update
 success "System aktualisiert"
@@ -121,17 +129,14 @@ success "System aktualisiert"
 # ── XanMod Kernel ────────────────────────────────────────────
 info "Prüfe CPU-Kompatibilität für x64v3..."
 if ! grep -q "avx2" /proc/cpuinfo; then
-    warn "CPU unterstützt kein AVX2. x64v3 Kernel wird nicht funktionieren."
-    error "Installation abgebrochen, um System-Brick zu verhindern."
+    error "CPU unterstützt kein AVX2 — Installation abgebrochen um System-Brick zu verhindern."
 fi
 
-# DKMS-Tools zuerst — werden für NVIDIA-Modulbau benötigt
 info "Installiere DKMS-Tools..."
 apt-get install -y --no-install-recommends dkms libdw-dev clang lld llvm
 success "DKMS-Tools installiert"
 
 info "Installiere XanMod LTS Kernel..."
-# Broken packages bereinigen bevor XanMod installiert wird
 dpkg --configure -a 2>/dev/null || true
 apt-get -f install -y 2>/dev/null || true
 
@@ -139,7 +144,6 @@ mkdir -p /etc/apt/keyrings
 wget -qO - https://dl.xanmod.org/archive.key \
     | gpg --dearmor --yes -o /etc/apt/keyrings/xanmod-archive-keyring.gpg
 
-# bookworm hardcodiert — lsb_release auf minimalem Debian liefert "n/a"
 echo "deb [signed-by=/etc/apt/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org bookworm main" \
     > /etc/apt/sources.list.d/xanmod-release.list
 
@@ -147,20 +151,36 @@ wait_apt
 apt-get update -qq
 wait_apt
 
-# linux-xanmod-x64v3 zieht Image + Headers automatisch mit
 DEBIAN_FRONTEND=noninteractive apt-get install -y linux-xanmod-lts-x64v3
 XANMOD_EXIT=$?
 
 if [[ $XANMOD_EXIT -eq 0 ]]; then
-    success "XanMod Kernel installiert (aktiv nach Reboot)"
-    CURRENT_KERNEL=$(uname -r)
-    # GRUB für Plymouth (Boot-Logo) vorbereiten
+    success "XanMod LTS Kernel installiert (aktiv nach Reboot)"
+
     if [[ -f /etc/default/grub ]]; then
-        sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 quiet splash nvidia-drm.modeset=1"/' /etc/default/grub
-        sed -i 's/quiet splash quiet splash/quiet splash/g' /etc/default/grub
+        # Kernel-Parameter je nach GPU-Konfiguration
+        GRUB_PARAMS="quiet splash"
+
+        if lspci | grep -qi nvidia; then
+            GRUB_PARAMS="$GRUB_PARAMS nvidia-drm.modeset=1"
+        fi
+
+        # AMD+NVIDIA Hybrid: IOMMU aktivieren verhindert DRM Fence Timeout Freezes
+        if lspci | grep -qi nvidia && lspci | grep -qi amd; then
+            GRUB_PARAMS="$GRUB_PARAMS amd_iommu=on iommu=pt"
+            info "AMD+NVIDIA Hybrid erkannt: IOMMU-Parameter gesetzt (verhindert Freezes)"
+        fi
+
+        sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_PARAMS\"/" /etc/default/grub
         sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
     fi
-    info "Alte Kernel wurden zur Sicherheit behalten. Bereinigung nach erstem erfolgreichen Boot empfohlen."
+
+    # XanMod LTS als Standard setzen
+    XANMOD_VER=$(ls /lib/modules 2>/dev/null | grep xanmod-lts 2>/dev/null | sort -V | tail -1)
+    if [[ -n "$XANMOD_VER" ]]; then
+        grub-set-default "Advanced options for SnowFoxOS GNU/Linux>SnowFoxOS GNU/Linux, with Linux $XANMOD_VER" 2>/dev/null || true
+    fi
+
     update-grub 2>/dev/null || true
     success "Boot-Konfiguration aktualisiert"
 else
@@ -168,7 +188,6 @@ else
 fi
 
 # Fritz USB AC 860 Treiber
-info "Prüfe Fritz USB AC 860 Treiber..."
 apt-get install -y firmware-misc-nonfree 2>/dev/null || true
 if lsusb 2>/dev/null | grep -qi "fritz\|0x0bda\|2357"; then
     modprobe mt76x2u 2>/dev/null && \
@@ -196,15 +215,15 @@ fi
 GPU_INFO=$(lspci | grep -iE 'vga|3d|display')
 HAS_NVIDIA=false
 HAS_AMD=false
+HAS_INTEL=false
 echo "$GPU_INFO" | grep -qi "nvidia" && HAS_NVIDIA=true
 echo "$GPU_INFO" | grep -qi "amd"    && HAS_AMD=true
+echo "$GPU_INFO" | grep -qi "intel"  && HAS_INTEL=true
 
 if $HAS_NVIDIA; then
     info "NVIDIA GPU erkannt — Installiere Treiber via CUDA-Repo..."
 
-    apt-get install -y clang-19 lld-19 2>/dev/null || \
-        apt-get install -y clang lld || true
-
+    apt-get install -y clang-19 lld-19 2>/dev/null || apt-get install -y clang lld || true
     update-alternatives --install /usr/bin/clang   clang   /usr/bin/clang-19  100 2>/dev/null || true
     update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-19 100 2>/dev/null || true
     update-alternatives --install /usr/bin/lld     lld     /usr/bin/lld-19    100 2>/dev/null || true
@@ -237,15 +256,36 @@ EOF
         libvulkan1 libvulkan1:i386 \
         nvidia-vulkan-icd nvidia-vulkan-icd:i386
 
+    # envycontrol für Hybrid-Systeme (AMD + NVIDIA)
     if $HAS_AMD; then
-        if apt-cache show envycontrol > /dev/null 2>&1; then
-            apt-get install -y envycontrol && success "envycontrol installiert"
+        info "Hybrid GPU erkannt — Installiere envycontrol..."
+        ENVY_DEB_URL=$(curl -sf https://api.github.com/repos/bayasdev/envycontrol/releases/latest 2>/dev/null \
+            | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for a in data.get('assets', []):
+        if a['name'].endswith('.deb'):
+            print(a['browser_download_url'])
+            break
+except: pass
+" 2>/dev/null)
+        if [[ -n "$ENVY_DEB_URL" ]]; then
+            curl -L "$ENVY_DEB_URL" -o /tmp/envycontrol.deb
+            dpkg -i /tmp/envycontrol.deb 2>/dev/null || apt-get -f install -y
+            rm -f /tmp/envycontrol.deb
+            success "envycontrol installiert"
         else
-            python3 -m venv /opt/envycontrol-venv 2>/dev/null || true
-            /opt/envycontrol-venv/bin/pip install envycontrol 2>/dev/null || true
-            ln -sf /opt/envycontrol-venv/bin/envycontrol /usr/local/bin/envycontrol 2>/dev/null || true
+            # Fallback: pip in venv
+            python3 -m venv /opt/envycontrol-venv
+            /opt/envycontrol-venv/bin/pip install git+https://github.com/bayasdev/envycontrol.git 2>/dev/null || true
+            ln -sf /opt/envycontrol-venv/bin/envycontrol /usr/local/bin/envycontrol
             success "envycontrol installiert (venv)"
         fi
+
+        # Hybrid-Modus als Standard setzen
+        envycontrol -s hybrid 2>/dev/null || true
+        success "GPU-Modus: hybrid"
     fi
 
     XANMOD_KERNEL=$(ls /lib/modules 2>/dev/null | grep xanmod | sort -V | tail -1)
@@ -265,7 +305,8 @@ elif $HAS_AMD; then
     info "AMD GPU erkannt — Nutze Mesa..."
     apt-get install -y firmware-amd-graphics mesa-vulkan-drivers mesa-va-drivers
     success "AMD Stack installiert"
-else
+
+elif $HAS_INTEL; then
     info "Intel Grafik erkannt..."
     apt-get install -y intel-media-va-driver-non-free i965-va-driver 2>/dev/null || true
     success "Intel Stack installiert"
@@ -285,13 +326,11 @@ success "GPU-Treiber eingerichtet"
 # ============================================================
 step "3/10 — i3 + Polybar + Rofi + Dunst + i3lock"
 
-# i3lock-color wird oft via Build-Deps installiert, da es nicht im Standard-Repo von Debian 12 ist.
-# Wir installieren die Abhängigkeiten für das manuelle Paket-Management oder den Build.
 wait_apt
 apt-get install -y \
     i3 \
     i3status \
-    i3lock-color \
+    i3lock \
     polybar \
     rofi \
     dunst \
@@ -299,7 +338,6 @@ apt-get install -y \
     libappindicator3-1 \
     libayatana-appindicator3-1 \
     feh \
-    xdg-desktop-portal-gtk \
     xdg-desktop-portal \
     libdbusmenu-gtk3-4 \
     redshift \
@@ -309,7 +347,6 @@ apt-get install -y \
     network-manager \
     network-manager-gnome \
     bluez \
-    blueman \
     fonts-inter \
     fonts-noto \
     fonts-noto-color-emoji \
@@ -317,11 +354,7 @@ apt-get install -y \
     papirus-icon-theme \
     arc-theme \
     qt5ct qt6ct \
-    qt5-style-kvantum \
-    qt6-style-kvantum \
-    kvantum \
     qt5-style-plugins \
-    adwaita-qt \
     xsettingsd \
     lxpolkit \
     lxappearance \
@@ -329,13 +362,37 @@ apt-get install -y \
     xss-lock \
     xserver-xorg-input-libinput \
     diodon \
-    joystick \
-    jstest-gtk \
     cups cups-bsd cups-client \
     printer-driver-splix
 
+# bluetui — Terminal Bluetooth Manager (kein blueman/GNOME)
+info "Installiere bluetui..."
+BLUETUI_URL=$(curl -sf https://api.github.com/repos/pythops/bluetui/releases/latest 2>/dev/null \
+    | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for a in data.get('assets', []):
+        if 'x86_64' in a['name'] and 'linux' in a['name'] and a['name'].endswith('.tar.gz'):
+            print(a['browser_download_url'])
+            break
+except: pass
+" 2>/dev/null)
+if [[ -n "$BLUETUI_URL" ]]; then
+    curl -L "$BLUETUI_URL" -o /tmp/bluetui.tar.gz
+    tar -xzf /tmp/bluetui.tar.gz -C /tmp/
+    mv /tmp/bluetui /usr/local/bin/bluetui 2>/dev/null || \
+        find /tmp -name "bluetui" -type f -exec mv {} /usr/local/bin/bluetui \;
+    chmod +x /usr/local/bin/bluetui
+    rm -f /tmp/bluetui.tar.gz
+    success "bluetui installiert"
+else
+    warn "bluetui nicht verfügbar — Bluetooth über 'bluetoothctl' nutzbar"
+fi
+
 systemctl enable bluetooth
 
+# Touchpad-Config
 mkdir -p /etc/X11/xorg.conf.d
 if [[ -f "$SCRIPT_DIR/configs/xorg/30-touchpad.conf" ]]; then
     cp "$SCRIPT_DIR/configs/xorg/30-touchpad.conf" /etc/X11/xorg.conf.d/30-touchpad.conf
@@ -356,6 +413,7 @@ EOF
     info "Touchpad-Config erstellt"
 fi
 
+# i3 Autostart
 BASH_PROFILE="$TARGET_HOME/.bash_profile"
 if ! grep -q "startx" "$BASH_PROFILE" 2>/dev/null; then
     echo '' >> "$BASH_PROFILE"
@@ -363,24 +421,24 @@ if ! grep -q "startx" "$BASH_PROFILE" 2>/dev/null; then
     echo '[ "$(tty)" = "/dev/tty1" ] && exec startx' >> "$BASH_PROFILE"
 fi
 
+# xinitrc — kein gsettings, kein kvantum, kein GNOME
 cat > "$TARGET_HOME/.xinitrc" << 'EOF'
 #!/bin/sh
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
 
-# Theme & Dark Mode Konfiguration
+# Theme
 export GTK_THEME=Arc-Dark
-export QT_QPA_PLATFORMTHEME=kvantum
+export QT_QPA_PLATFORMTHEME=qt5ct
 export _JAVA_AWT_WM_NONREPARENTING=1
 
-# Globaler Dark Mode für GTK4/Electron/Modern Apps
-gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
-gsettings set org.gnome.desktop.interface gtk-theme 'Arc-Dark'
-
+# xsettingsd für GTK-Theme in X11
 xsettingsd &
 
+# DBus
 if [ -f /usr/bin/dbus-launch ]; then
     eval $(/usr/bin/dbus-launch --sh-syntax --exit-with-session)
 fi
+
 exec i3
 EOF
 chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.xinitrc"
@@ -430,10 +488,10 @@ echo -e "  3) Beide"
 echo ""
 read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-3]: "${RESET})" FM_CHOICE
 case "$FM_CHOICE" in
-    1|3) apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs gvfs-backends
+    1|3) apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs
          success "Thunar installiert" ;;
     2)   success "MC bereits installiert" ;;
-    *)   apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs gvfs-backends
+    *)   apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs
          success "Thunar installiert (Standard)" ;;
 esac
 
@@ -464,6 +522,7 @@ if ask_install "OnlyOffice"; then
     apt-get install -y onlyoffice-desktopeditors && success "OnlyOffice installiert" || warn "OnlyOffice fehlgeschlagen"
 fi
 
+# yt-dlp
 curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
 success "yt-dlp installiert"
@@ -596,6 +655,23 @@ except: pass
 fi
 
 # ============================================================
+# SCHRITT 7b — Ollama (Lokale KI)
+# ============================================================
+step "7b/10 — Ollama (Lokale KI)"
+
+if ask_install "Ollama (lokale KI, kein Modell — nur Engine)"; then
+    info "Installiere Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null || warn "Ollama Installation fehlgeschlagen"
+
+    # Ollama nicht automatisch starten — nur bei Bedarf via snowfox cli
+    systemctl disable ollama 2>/dev/null || true
+    systemctl stop ollama 2>/dev/null || true
+
+    success "Ollama installiert (nicht aktiv — starten mit: ollama serve)"
+    info "Modelle installieren mit: ollama pull <modell> (z.B. ollama pull mistral)"
+fi
+
+# ============================================================
 # SCHRITT 8 — Performance & Sicherheit
 # ============================================================
 step "8/10 — Performance & Sicherheit"
@@ -610,7 +686,7 @@ PERCENT=50
 PRIORITY=100
 EOF
 
-# Initramfs auf lz4 umstellen für schnelleren Boot
+# Initramfs auf lz4 umstellen
 if [[ -f /etc/initramfs-tools/initramfs.conf ]]; then
     sed -i 's/^COMPRESS=.*/COMPRESS=lz4/' /etc/initramfs-tools/initramfs.conf
     update-initramfs -u 2>/dev/null || true
@@ -619,31 +695,43 @@ fi
 systemctl enable zramswap earlyoom tlp 2>/dev/null || true
 
 cat > /etc/sysctl.d/99-snowfox.conf << 'EOF'
+# RAM & Swap
 vm.swappiness=10
 vm.vfs_cache_pressure=50
 vm.dirty_background_ratio=3
 vm.dirty_ratio=6
+
+# Netzwerk
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+
+# IPv6 Privacy
 net.ipv6.conf.all.use_tempaddr=2
 net.ipv6.conf.default.use_tempaddr=2
+
+# CPU
+kernel.nmi_watchdog=0
 EOF
 
-# root-Partition auf noatime setzen für weniger I/O-Overhead
-info "Optimiere fstab (noatime)..."
+# fstab — noatime + tmpfs ohne Duplikate
+info "Optimiere fstab..."
 sed -i 's/errors=remount-ro/errors=remount-ro,noatime/g' /etc/fstab
 
-grep -q "tmpfs /tmp" /etc/fstab || \
-    echo "tmpfs /tmp tmpfs defaults,noatime,mode=1777 0 0" >> /etc/fstab
+# Duplikate entfernen, einmal sauber setzen
+sed -i '/tmpfs \/tmp tmpfs/d' /etc/fstab
+echo "tmpfs /tmp tmpfs defaults,noatime,size=4G,mode=1777 0 0" >> /etc/fstab
+success "fstab optimiert (noatime, tmpfs einmalig)"
 
+# Firewall
 ufw default deny incoming  2>/dev/null || true
 ufw default allow outgoing 2>/dev/null || true
 ufw --force enable         2>/dev/null || true
 success "ufw Firewall aktiviert"
 
+# NetworkManager
 mkdir -p /etc/NetworkManager/conf.d
-
-# managed=true — wichtig damit WiFi von NetworkManager verwaltet wird
 cat > /etc/NetworkManager/NetworkManager.conf << 'EOF'
 [main]
 plugins=ifupdown,keyfile
@@ -662,9 +750,10 @@ EOF
 
 cat > /etc/NetworkManager/conf.d/99-snowfox-wifi-powersave.conf << 'EOF'
 [connection]
-wifi.powersave=2 # 2 = off, 3 = on (default)
+wifi.powersave=2
 EOF
 
+# DNS-over-TLS
 mkdir -p /etc/systemd/resolved.conf.d
 cat > /etc/systemd/resolved.conf.d/snowfox.conf << 'EOF'
 [Resolve]
@@ -675,11 +764,12 @@ DNSOverTLS=opportunistic
 EOF
 systemctl enable systemd-resolved irqbalance 2>/dev/null || true
 
-for svc in avahi-daemon cups-browsed ModemManager colord; do
+# Unnötige Dienste deaktivieren
+for svc in avahi-daemon cups-browsed ModemManager colord blueman; do
     systemctl disable "$svc" 2>/dev/null || true
 done
 
-# NetworkManager-wait-online deaktivieren, um Boot-Verzögerung zu vermeiden
+# Boot-Verzögerungen eliminieren
 systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
 systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
 
@@ -722,8 +812,8 @@ EOF
 [[ -f "$SCRIPT_DIR/assets/fuchs.png" ]] && \
     convert "$SCRIPT_DIR/assets/fuchs.png" -resize 200x200 "$PLYMOUTH_DIR/logo.png" 2>/dev/null || true
 convert -size 1920x1080 xc:#0f0f0f "$PLYMOUTH_DIR/background.png" 2>/dev/null || true
-# -R baut initramfs direkt nach theme-Wechsel neu
-plymouth-set-default-theme -R snowfox 2>/dev/null || { plymouth-set-default-theme snowfox 2>/dev/null || true; update-initramfs -u 2>/dev/null || true; }
+plymouth-set-default-theme -R snowfox 2>/dev/null || \
+    { plymouth-set-default-theme snowfox 2>/dev/null || true; update-initramfs -u 2>/dev/null || true; }
 
 success "Boot-Screen bereit"
 
@@ -737,40 +827,34 @@ mkdir -p "$CONFIG_DIR/neofetch"
 mkdir -p "$TARGET_HOME/Pictures/wallpapers"
 
 # ── Distro-Identität ─────────────────────────────────────────
-# /etc/os-release: bestimmt was neofetch, fastfetch usw. anzeigen
 cat > /etc/os-release << 'EOF'
-PRETTY_NAME="SnowFoxOS 2.2"
+PRETTY_NAME="SnowFoxOS 2.1"
 NAME="SnowFoxOS"
-VERSION="2.2"
-VERSION_ID="2.2"
+VERSION="2.1"
+VERSION_ID="2.1"
 ID=snowfoxos
 ID_LIKE=debian
-HOME_URL="https://github.com/Xr7-Code/SnowFoxOS-v2-i3"
+HOME_URL="https://github.com/Xr7-Code/SnowFoxOS-v2.1-i3"
 ANSI_COLOR="0;35"
 EOF
 
-# /etc/lsb-release — wird von manchen Tools gelesen
 cat > /etc/lsb-release << 'EOF'
 DISTRIB_ID=SnowFoxOS
-DISTRIB_RELEASE=2.2
+DISTRIB_RELEASE=2.1
 DISTRIB_CODENAME=fox
-DISTRIB_DESCRIPTION="SnowFoxOS 2.2"
+DISTRIB_DESCRIPTION="SnowFoxOS 2.1"
 EOF
 
-echo "snowfox"                  > /etc/hostname
-echo "SnowFoxOS 2.2"            > /etc/issue
-echo "SnowFoxOS 2.2 \n \l"      > /etc/issue.net
+echo "snowfox"             > /etc/hostname
+echo "SnowFoxOS 2.1"       > /etc/issue
+echo "SnowFoxOS 2.1 \n \l" > /etc/issue.net
 hostname snowfox 2>/dev/null || true
+success "Distro-Identität gesetzt"
 
-success "Distro-Identität auf SnowFoxOS v2.2 gesetzt"
-
-# ── Dark Mode & Theme Aktivierung ────────────────────────────
+# ── Theme & GTK ──────────────────────────────────────────────
 info "Aktiviere Arc-Dark Design & Papirus Icons..."
-
-# Verzeichnisse erstellen
 mkdir -p "$CONFIG_DIR/xsettingsd"
 
-# GTK3/4 Konfiguration
 for version in "3.0" "4.0"; do
     mkdir -p "$CONFIG_DIR/gtk-$version"
     cat > "$CONFIG_DIR/gtk-$version/settings.ini" << GEOF
@@ -783,7 +867,6 @@ gtk-application-prefer-dark-theme=1
 GEOF
 done
 
-# GTK2 Konfiguration
 cat > "$TARGET_HOME/.gtkrc-2.0" << G2EOF
 include "/usr/share/themes/Arc-Dark/gtk-2.0/gtkrc"
 gtk-theme-name="Arc-Dark"
@@ -791,15 +874,14 @@ gtk-icon-theme-name="Papirus-Dark"
 gtk-font-name="Inter 10"
 G2EOF
 
-# xsettingsd (wichtig für i3/X11 Apps)
 cat > "$CONFIG_DIR/xsettingsd/xsettingsd.conf" << XEOF
 Net/ThemeName "Arc-Dark"
 Net/IconThemeName "Papirus-Dark"
 Gtk/CursorThemeName "Adwaita"
 XEOF
 
-# ── Qt Styling (Qt5 & Qt6) ───────────────────────────────────
-info "Konfiguriere Qt-Styling für einheitliches Design..."
+# ── Qt Styling ───────────────────────────────────────────────
+info "Konfiguriere Qt-Styling..."
 mkdir -p "$CONFIG_DIR/qt5ct" "$CONFIG_DIR/qt6ct"
 
 cat > "$CONFIG_DIR/qt5ct/qt5ct.conf" << Q5EOF
@@ -809,25 +891,24 @@ Q5EOF
 
 cat > "$CONFIG_DIR/qt6ct/qt6ct.conf" << Q6EOF
 [Appearance]
-style=adwaita-dark
+style=gtk2
 Q6EOF
 
-# ── Neofetch Konfiguration ───────────────────────────────────
+# ── Neofetch ─────────────────────────────────────────────────
 cat > "$CONFIG_DIR/neofetch/config.conf" << EOF
-
 print_info() {
     info title
     info underline
-    info "OS" distro
-    info "Kernel" kernel
-    info "Uptime" uptime
-    info "Packages" packages
-    info "Shell" shell
+    info "OS"         distro
+    info "Kernel"     kernel
+    info "Uptime"     uptime
+    info "Packages"   packages
+    info "Shell"      shell
     info "Resolution" resolution
-    info "WM" wm
-    info "CPU" cpu
-    info "GPU" gpu
-    info "Memory" memory # Zeigt RAM in MB an
+    info "WM"         wm
+    info "CPU"        cpu
+    info "GPU"        gpu
+    info "Memory"     memory
 }
 image_backend="ascii"
 ascii_distro=""
@@ -853,24 +934,21 @@ cat > "$CONFIG_DIR/neofetch/snowfox.txt" << 'ASCIIEOF'
               ----------
 ASCIIEOF
 
-# Repo-Configs kopieren
+# ── Repo-Configs kopieren ────────────────────────────────────
 if [[ -d "$SCRIPT_DIR/configs" ]]; then
     cp -r "$SCRIPT_DIR/configs/"* "$CONFIG_DIR/"
     success "Konfigurationsdateien kopiert"
 
-    # Visuelles Polishing: Rofi Icons & Picom Schatten
-    info "Wende visuelle Optimierungen an (Icons & Schatten)..."
+    # Rofi
     sed -i 's/show-icons: .*/show-icons: false;/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
     sed -i 's/icon-theme: .*/icon-theme: "Papirus-Dark";/' "$CONFIG_DIR/rofi/config.rasi" 2>/dev/null
-    
+
+    # Picom — optimiert, kein Fading
     if [[ -f "$CONFIG_DIR/picom.conf" ]]; then
         sed -i 's/backend = .*/backend = "glx";/' "$CONFIG_DIR/picom.conf"
         sed -i 's/shadow = .*/shadow = true;/' "$CONFIG_DIR/picom.conf"
-        # Polybar explizit von der Shadow-Exclusion Liste entfernen, falls vorhanden
-        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Polybar."//g' "$CONFIG_DIR/picom.conf"
-        sed -i '/shadow-exclude = \[/,/\];/ s/"class_g = .Rofi."//g' "$CONFIG_DIR/picom.conf"
-        # Wintypes-Overrides anpassen, damit Panels (Docks) und Menüs Schatten werfen
-        sed -i 's/dock = { shadow = false; }/dock = { shadow = true; }/g' "$CONFIG_DIR/picom.conf"
+        sed -i 's/fading = .*/fading = false;/' "$CONFIG_DIR/picom.conf"
+        sed -i 's/dock = { shadow = false; }/dock = { shadow = false; }/g' "$CONFIG_DIR/picom.conf"
     fi
 else
     warn "configs/-Verzeichnis nicht gefunden"
@@ -879,11 +957,11 @@ fi
 # Skripte ausführbar machen
 find "$CONFIG_DIR" -name "*.sh" -exec chmod +x {} +
 
-# Standard-Wallpaper initialisieren
+# ── Wallpaper ────────────────────────────────────────────────
 [[ -d "$SCRIPT_DIR/wallpapers" ]] && \
     cp -r "$SCRIPT_DIR/wallpapers/." "$TARGET_HOME/Pictures/wallpapers/"
 
-DEFAULT_WP=$(ls "$TARGET_HOME/Pictures/wallpapers" 2>/dev/null | grep -iE ".jpg$|.png$|.webp$|.jpeg$" | head -n 1)
+DEFAULT_WP=$(ls "$TARGET_HOME/Pictures/wallpapers" 2>/dev/null | grep -iE "\.jpg$|\.png$|\.webp$|\.jpeg$" | head -n 1)
 if [[ -n "$DEFAULT_WP" ]]; then
     echo "#!/bin/sh" > "$TARGET_HOME/.fehbg"
     echo "feh --bg-fill '$TARGET_HOME/Pictures/wallpapers/$DEFAULT_WP'" >> "$TARGET_HOME/.fehbg"
@@ -892,24 +970,25 @@ if [[ -n "$DEFAULT_WP" ]]; then
     info "Standard-Wallpaper gesetzt: $DEFAULT_WP"
 fi
 
-# Polybar modules-right dynamisch anpassen
+# ── Polybar — Laptop/Desktop automatisch ─────────────────────
 POLYBAR_CONF="$CONFIG_DIR/polybar/config.ini"
 if [[ -f "$POLYBAR_CONF" ]]; then
     if [[ "$IS_LAPTOP" == "true" ]]; then
-        # Hardware-Pfade für Akku und Backlight erkennen
-        BAT_NAME=$(ls /sys/class/power_supply/ | grep -E "BAT|battery" | head -1)
+        BAT_NAME=$(ls /sys/class/power_supply/ 2>/dev/null | grep -E "BAT|battery" | head -1)
         [[ -n "$BAT_NAME" ]] && sed -i "s/battery = BAT1/battery = $BAT_NAME/" "$POLYBAR_CONF"
-        
-        BL_NAME=$(ls /sys/class/backlight/ | head -1)
+
+        BL_NAME=$(ls /sys/class/backlight/ 2>/dev/null | head -1)
         [[ -n "$BL_NAME" ]] && sed -i "s/card = intel_backlight/card = $BL_NAME/" "$POLYBAR_CONF"
 
-        success "Polybar: Akku + Helligkeit aktiviert (Laptop erkannt)"
+        sed -i 's/^modules-right =.*/modules-right = backlight battery memory network pulseaudio/' "$POLYBAR_CONF"
+        success "Polybar: Laptop-Modus (Akku + Helligkeit aktiv)"
     else
-        # Auf Desktops Akku und Backlight aus der Leiste entfernen
-        sed -i 's/backlight battery//' "$POLYBAR_CONF"
+        sed -i 's/^modules-right =.*/modules-right = memory network pulseaudio/' "$POLYBAR_CONF"
+        success "Polybar: Desktop-Modus (kein Akku/Helligkeit)"
     fi
 fi
 
+# ── modprobe Configs ─────────────────────────────────────────
 if [[ -d "$SCRIPT_DIR/configs/modprobe" ]]; then
     cp "$SCRIPT_DIR/configs/modprobe/amdgpu.conf" /etc/modprobe.d/ 2>/dev/null || true
     cp "$SCRIPT_DIR/configs/modprobe/nvidia.conf"  /etc/modprobe.d/ 2>/dev/null || true
@@ -917,9 +996,40 @@ if [[ -d "$SCRIPT_DIR/configs/modprobe" ]]; then
     success "modprobe Configs installiert"
 fi
 
+# ── Skripte installieren ─────────────────────────────────────
 [[ -f "$SCRIPT_DIR/configs/powermenu.sh" ]] && \
     cp "$SCRIPT_DIR/configs/powermenu.sh" /usr/local/bin/snowfox-powermenu && \
     chmod +x /usr/local/bin/snowfox-powermenu
+
+# display.sh — mit i3 reload und Polybar-Neustart
+if [[ -f "$SCRIPT_DIR/configs/snowfox-display.sh" ]]; then
+    cp "$SCRIPT_DIR/configs/snowfox-display.sh" "$CONFIG_DIR/snowfox-display.sh"
+    if ! grep -q "polybar/launch.sh" "$CONFIG_DIR/snowfox-display.sh"; then
+        sed -i 's/i3-msg restart/i3-msg reload/' "$CONFIG_DIR/snowfox-display.sh"
+        echo "" >> "$CONFIG_DIR/snowfox-display.sh"
+        echo "sleep 0.5" >> "$CONFIG_DIR/snowfox-display.sh"
+        echo "~/.config/polybar/launch.sh" >> "$CONFIG_DIR/snowfox-display.sh"
+    fi
+    chmod +x "$CONFIG_DIR/snowfox-display.sh"
+    success "snowfox-display.sh installiert"
+fi
+
+# launch.sh — mit sleep 2 und primary-Fallback
+mkdir -p "$CONFIG_DIR/polybar"
+cat > "$CONFIG_DIR/polybar/launch.sh" << 'LAUNCHEOF'
+#!/bin/bash
+# SnowFoxOS — Polybar Starter
+sleep 2
+killall -q polybar
+while pgrep -u $UID -x polybar >/dev/null; do sleep 0.1; done
+PRIMARY=$(xrandr --query | grep " connected primary" | cut -d" " -f1)
+if [[ -z "$PRIMARY" ]]; then
+    PRIMARY=$(xrandr --query | grep " connected" | head -1 | cut -d" " -f1)
+fi
+MONITOR=$PRIMARY polybar snowfox 2>/tmp/polybar.log &
+LAUNCHEOF
+chmod +x "$CONFIG_DIR/polybar/launch.sh"
+success "polybar/launch.sh installiert"
 
 [[ -f "$SCRIPT_DIR/snowfox" ]] && \
     cp "$SCRIPT_DIR/snowfox" /usr/local/bin/snowfox && chmod +x /usr/local/bin/snowfox
@@ -932,20 +1042,7 @@ grep -q "snowfox-greeting" "$TARGET_HOME/.bashrc" 2>/dev/null || \
     printf '\n# SnowFoxOS Greeting\n[[ -x /usr/local/bin/snowfox-greeting ]] && snowfox-greeting\n' \
     >> "$TARGET_HOME/.bashrc"
 
-# Standard-Dateimanager
-echo ""
-echo -e "${PURPLE}${BOLD}  Standard-Dateimanager:${RESET}"
-echo -e "  1) Thunar  (grafisch, empfohlen)"
-echo -e "  2) Nautilus (GNOME)"
-echo -e "  3) MC      (Terminal)"
-read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-3]: "${RESET})" DEFAULT_FM
-case "$DEFAULT_FM" in
-    2) DEFAULT_FM_DESKTOP="org.gnome.Nautilus.desktop" ;;
-    3) DEFAULT_FM_DESKTOP="mc.desktop" ;;
-    *) DEFAULT_FM_DESKTOP="thunar.desktop" ;;
-esac
-
-# Standard-Texteditor
+# ── Standard-Apps ────────────────────────────────────────────
 echo ""
 echo -e "${PURPLE}${BOLD}  Standard-Texteditor:${RESET}"
 echo -e "  1) Mousepad (Standard)"
@@ -956,10 +1053,11 @@ case "$DEFAULT_EDITOR" in
     *) DEFAULT_EDITOR_DESKTOP="mousepad.desktop" ;;
 esac
 
+DEFAULT_FM_DESKTOP="thunar.desktop"
+
 cat > "$CONFIG_DIR/mimeapps.list" << MEOF
 [Default Applications]
 inode/directory=$DEFAULT_FM_DESKTOP
-inode/directory=thunar.desktop
 text/plain=$DEFAULT_EDITOR_DESKTOP
 text/x-python=$DEFAULT_EDITOR_DESKTOP
 text/x-shellscript=$DEFAULT_EDITOR_DESKTOP
@@ -975,22 +1073,27 @@ image/gif=ristretto.desktop
 video/mp4=mpv.desktop
 video/x-matroska=mpv.desktop
 audio/mpeg=mpv.desktop
-application/zip=org.gnome.FileRoller.desktop
-application/x-tar=org.gnome.FileRoller.desktop
+application/zip=file-roller.desktop
+application/x-tar=file-roller.desktop
 MEOF
 success "Standard-Anwendungen gesetzt"
 
-# Berechtigungen — nach allen Kopieroperationen
+# ── Berechtigungen ───────────────────────────────────────────
 chown -R "$TARGET_USER:$TARGET_USER" "$CONFIG_DIR"
 chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/Pictures/wallpapers"
 chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.gtkrc-2.0"
 chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.bash_profile"
 
-# DKMS-Hooks wiederherstellen
+# ── DKMS-Hooks wiederherstellen ──────────────────────────────
 for hook in "${DKMS_HOOKS[@]}"; do
     [[ -f "${hook}.snowfox-bak" ]] && mv "${hook}.snowfox-bak" "$hook"
 done
 info "DKMS-Hooks wiederhergestellt"
+
+# ── Alte Kernel aufräumen ────────────────────────────────────
+info "Bereinige alte Kernel..."
+apt-get autoremove --purge -y 2>/dev/null || true
+success "Alte Kernel entfernt"
 
 # ============================================================
 # Fertig!
@@ -1004,4 +1107,4 @@ echo "  ███████║██║ ╚███║╚██████�
 echo "  ╚══════╝╚═╝  ╚══╝ ╚═════╝  ╚══╝╚══╝ ╚═╝     ╚═════╝ ╚═╝  ╚═╝"
 echo -e "${RESET}"
 success "SnowFoxOS v2.1 erfolgreich installiert!"
-warn "Bitte neu starten: sudo reboot"
+warn   "Bitte neu starten: sudo reboot"
