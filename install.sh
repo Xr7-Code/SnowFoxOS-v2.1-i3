@@ -351,6 +351,7 @@ apt-get install -y \
     fonts-noto \
     fonts-noto-color-emoji \
     fonts-font-awesome \
+    fonts-jetbrains-mono \
     papirus-icon-theme \
     arc-theme \
     qt5ct qt6ct \
@@ -445,6 +446,18 @@ chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.xinitrc"
 chmod +x "$TARGET_HOME/.xinitrc"
 
 success "i3 Desktop & Autostart eingerichtet"
+# ── Nerd Fonts ───────────────────────────────────────────────
+info "Installiere Nerd Fonts (JetBrainsMono)..."
+NERD_VERSION=$(curl -sf https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('tag_name','v3.2.1'))" 2>/dev/null || echo "v3.2.1")
+NERD_URL="https://github.com/ryanoasis/nerd-fonts/releases/download/${NERD_VERSION}/JetBrainsMono.zip"
+mkdir -p /usr/local/share/fonts/nerd-fonts
+curl -L "$NERD_URL" -o /tmp/JetBrainsMono.zip 2>/dev/null && \
+    unzip -o /tmp/JetBrainsMono.zip "*.ttf" -d /usr/local/share/fonts/nerd-fonts/ 2>/dev/null && \
+    fc-cache -fv /usr/local/share/fonts/nerd-fonts/ 2>/dev/null && \
+    rm -f /tmp/JetBrainsMono.zip && \
+    success "JetBrainsMono Nerd Font installiert" || \
+    warn "Nerd Fonts Download fehlgeschlagen — manuell installieren"
+
 
 # ============================================================
 # SCHRITT 4 — Audio (PipeWire)

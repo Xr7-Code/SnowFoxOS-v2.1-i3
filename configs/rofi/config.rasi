@@ -1,20 +1,22 @@
-/* SnowFoxOS â€” Rofi Theme */
+/* ============================================================
+   SnowFoxOS — Rofi Theme
+   ============================================================ */
 
 configuration {
-    modi:            "drun,run"; /* Icons werden für drun über die i3-Konfiguration aktiviert */
-    show-icons:      false;      /* Global: Icons standardmäßig deaktivieren, um Einrückungen im 'run'-Modus und 'dmenu' zu vermeiden */
-    icon-theme:      "Papirus-Dark";
+    modi:        "drun,run";
+    show-icons:  false;
+    icon-theme:  "Papirus-Dark";
 }
 
 * {
-    font:            "Inter 11";
-    bg:              #141414;
-    bg-alt:          #1a1a1a;
-    fg:              #e8e8e8;
-    fg-alt:          #b0b0b0;
-    purple:          #9B59B6;
-    orange:          #E67E22;
-    border-color:    rgba(155, 89, 182, 0.5);
+    font:             "Inter 11";
+    bg:               #0d0d0d;
+    bg-alt:           #161616;
+    fg:               #e8e8e8;
+    fg-alt:           #888888;
+    purple:           #9B59B6;
+    orange:           #E67E22;
+    border-color:     rgba(155, 89, 182, 0.5);
     background-color: transparent;
 }
 
@@ -22,7 +24,7 @@ window {
     background-color: @bg;
     border:           1px solid;
     border-color:     @border-color;
-    border-radius:    10px;
+    border-radius:    8px;
     width:            500px;
     padding:          8px;
 }
