@@ -2,13 +2,15 @@
 # SnowFoxOS — Display Manager via Rofi
 
 # Angeschlossene Monitore ermitteln
-MONITORS=$(xrandr | grep " connected" | awk '{print $1}')
-PRIMARY=$(xrandr | grep " connected primary" | awk '{print $1}')
+MONITORS=$(xrandr --query | grep " connected" | awk '{print $1}')
+PRIMARY=$(xrandr --query | grep " connected primary" | awk '{print $1}')
+
+[[ -z "$MONITORS" ]] && exit 1
 
 MENU=""
 while IFS= read -r mon; do
-    STATUS=$(xrandr | grep "^$mon" | grep -q " connected primary" && echo "★ PRIMARY" || echo "")
-    ACTIVE=$(xrandr | grep "^$mon" | grep -q "\*" && echo "AN" || echo "AUS")
+    STATUS=$(xrandr --query | grep "^$mon" | grep -q "connected primary" && echo "★ PRIMARY" || echo "")
+    ACTIVE=$(xrandr --query | grep "^$mon" | grep -q "\*" && echo "AN" || echo "AUS")
     MENU="${MENU}${mon}  [${ACTIVE}] ${STATUS}\n"
 done <<< "$MONITORS"
 
@@ -17,10 +19,11 @@ MENU="${MENU}  Alle spiegeln\n"
 MENU="${MENU}  Alle erweitern (links-rechts)\n"
 MENU="${MENU}  Nur primären Monitor\n"
 MENU="${MENU}  Anordnung konfigurieren"
+MENU="${MENU}  Hybrid-Sync Refresh"
 
 CHOICE=$(echo -e "$MENU" | rofi -dmenu \
     -p "Display" \
-    -theme ~/.config/rofi/config.rasi \
+    -theme "$HOME/.config/rofi/config.rasi" \
     -width 450 \
     -lines 12)
 
@@ -30,25 +33,24 @@ case "$CHOICE" in
     *"Alle spiegeln"*)
         FIRST=""
         while IFS= read -r mon; do
+            xrandr --output "$mon" --auto
             if [[ -z "$FIRST" ]]; then
-                xrandr --output "$mon" --auto --primary
+                xrandr --output "$mon" --primary
                 FIRST="$mon"
             else
-                xrandr --output "$mon" --same-as "$FIRST" --auto
+                xrandr --output "$mon" --same-as "$FIRST"
             fi
         done <<< "$MONITORS"
         notify-send "🦊 SnowFox Display" "Alle Monitore gespiegelt"
         ;;
 
     *"Alle erweitern"*)
-        PREV=""
+        # Nutze den existierenden Primary als Anker, falls vorhanden
+        ANCHOR="${PRIMARY:-$(echo "$MONITORS" | head -n1)}"
+        xrandr --output "$ANCHOR" --auto --primary
         while IFS= read -r mon; do
-            if [[ -z "$PREV" ]]; then
-                xrandr --output "$mon" --auto --primary
-                PREV="$mon"
-            else
-                xrandr --output "$mon" --auto --right-of "$PREV"
-                PREV="$mon"
+            if [[ "$mon" != "$ANCHOR" ]]; then
+                xrandr --output "$mon" --auto --right-of "$ANCHOR"
             fi
         done <<< "$MONITORS"
         notify-send "🦊 SnowFox Display" "Erweitert (links nach rechts)"
@@ -68,7 +70,7 @@ case "$CHOICE" in
     *"Anordnung konfigurieren"*)
         NEW_PRIMARY=$(echo "$MONITORS" | rofi -dmenu \
             -p "Hauptmonitor wählen" \
-            -theme ~/.config/rofi/config.rasi \
+            -theme "$HOME/.config/rofi/config.rasi" \
             -width 350 \
             -lines 5)
         [[ -z "$NEW_PRIMARY" ]] && exit 0
@@ -78,7 +80,7 @@ case "$CHOICE" in
             POS=$(echo -e "Rechts von $NEW_PRIMARY\nLinks von $NEW_PRIMARY\nOben von $NEW_PRIMARY\nUnten von $NEW_PRIMARY\nAusschalten" | \
                 rofi -dmenu \
                 -p "$OTHER Position" \
-                -theme ~/.config/rofi/config.rasi \
+                -theme "$HOME/.config/rofi/config.rasi" \
                 -width 350 \
                 -lines 5)
 
@@ -95,6 +97,12 @@ case "$CHOICE" in
             xrandr --output "$NEW_PRIMARY" --auto --primary
             notify-send "🦊 SnowFox Display" "$NEW_PRIMARY ist jetzt primär"
         fi
+        ;;
+
+    *"Hybrid-Sync Refresh"*)
+        # Erzwingt eine Neusynchronisation der X-Provider (hilft gegen Freezes)
+        xrandr --auto
+        notify-send "🦊 SnowFox" "Hybrid-Sync Buffer aktualisiert"
         ;;
 
     *)

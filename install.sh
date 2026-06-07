@@ -47,12 +47,158 @@ if [[ ! -f /etc/debian_version ]] || ! grep -q "^12\." /etc/debian_version; then
     warn "Dieses Script ist für Debian 12 (Bookworm) optimiert."
 fi
 
-# ── Benutzer ermitteln ───────────────────────────────────────
-TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
-if [[ -z "$TARGET_USER" || "$TARGET_USER" == "root" ]]; then
-    read -rp "Benutzername: " TARGET_USER
+# ── Phase 0: Installations-Ziel ──────────────────────────────
+step "0/10 — Installations-Modus"
+echo -e "Wie möchtest du SnowFoxOS installieren?"
+echo -e "1) ${BOLD}Aktuelles System konfigurieren${RESET} (Du hast Debian schon installiert)"
+echo -e "2) ${BOLD}Automatische Installation auf ausgewählter Festplatte${RESET} (Alle Daten werden gelöscht!)"
+echo -e "3) ${BOLD}Manuelle Partitionierung & Installation${RESET} (Für Dual-Boot oder spezifische Partitionen)"
+echo ""
+read -rp "Auswahl [1-3]: " INSTALL_MODE
+
+if [[ "$INSTALL_MODE" == "2" ]]; then
+    info "Standalone-Installer gestartet."
+    lsblk -p -n -o NAME,SIZE,MODEL | grep -v "loop"
+    read -rp "Ziel-Laufwerk wählen (z.B. /dev/sda): " TARGET_DISK
+    [[ ! -b "$TARGET_DISK" ]] && error "Ungültiges Laufwerk!"
+
+    warn "ALLE DATEN AUF $TARGET_DISK WERDEN GELÖSCHT!"
+    read -rp "Sicher? [JA/nein]: " CONFIRM
+    [[ "$CONFIRM" != "JA" ]] && error "Abgebrochen."
+
+    # Einfache Partitionierung (BIOS/GPT Hybrid-Ansatz für maximale Kompatibilität)
+    info "Partitioniere $TARGET_DISK..."
+    parted -s "$TARGET_DISK" mklabel gpt
+    parted -s "$TARGET_DISK" mkpart primary fat32 1MiB 513MiB
+    parted -s "$TARGET_DISK" set 1 esp on
+    parted -s "$TARGET_DISK" mkpart primary ext4 513MiB 100%
+
+    # Formatierung
+    info "Formatiere Partitionen..."
+    mkfs.vfat -F32 "${TARGET_DISK}1" 2>/dev/null || mkfs.vfat -F32 "${TARGET_DISK}p1"
+    mkfs.ext4 -F "${TARGET_DISK}2" 2>/dev/null || mkfs.ext4 -F "${TARGET_DISK}p2"
+
+    # Mounten
+    mkdir -p /mnt/target
+    mount "${TARGET_DISK}2" /mnt/target 2>/dev/null || mount "${TARGET_DISK}p2" /mnt/target
+    mkdir -p /mnt/target/boot/efi
+    mount "${TARGET_DISK}1" /mnt/target/boot/efi 2>/dev/null || mount "${TARGET_DISK}p1" /mnt/target/boot/efi
+
+    # System kopieren (von Live-Umgebung auf Disk)
+    info "Kopiere System-Dateien (dies kann dauern)..."
+    rsync -aAXv --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} / /mnt/target/
+
+    # Root & User Setup
+    read -rp "Neuer Benutzername: " TARGET_USER
+    read -sp "Passwort für $TARGET_USER: " USER_PASS; echo ""
+    read -sp "Root-Passwort: " ROOT_PASS; echo ""
+
+    # Chroot Vorbereitung für Bootloader & User
+    info "Konfiguriere Bootloader und Benutzer..."
+    mount --bind /dev /mnt/target/dev
+    mount --bind /proc /mnt/target/proc
+    mount --bind /sys /mnt/target/sys
+
+    chroot /mnt/target /bin/bash << EOF
+useradd -m -s /bin/bash "$TARGET_USER"
+echo "$TARGET_USER:$USER_PASS" | chpasswd
+echo "root:$ROOT_PASS" | chpasswd
+usermod -aG sudo "$TARGET_USER"
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=SnowFoxOS --recheck
+grub-install --target=i386-pc "$TARGET_DISK" || true
+update-grub
+EOF
+    success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
+    
+    # Wir wechseln das Arbeitsverzeichnis für den Rest des Skripts auf die neue Platte
+    TARGET_HOME="/mnt/target/home/$TARGET_USER"
+    # Ab hier läuft das Skript weiter und konfiguriert die Software auf der neuen Platte
+    # (Um das Skript einfach zu halten, empfehlen wir hier einen Reboot in das neue System 
+    # und dort den normalen Setup-Lauf, aber wir führen es hier direkt aus)
 fi
-TARGET_HOME="/home/$TARGET_USER"
+    # Set TARGET_USER and TARGET_HOME for the rest of the script
+    TARGET_HOME="/mnt/target/home/$TARGET_USER"
+elif [[ "$INSTALL_MODE" == "3" ]]; then
+    info "Manuelle Partitionierung gestartet."
+    lsblk -p -n -o NAME,SIZE,FSTYPE,MOUNTPOINT | grep -v "loop"
+
+    read -rp "Ziel-Laufwerk für GRUB (z.B. /dev/sda): " TARGET_DISK_GRUB
+    [[ ! -b "$TARGET_DISK_GRUB" ]] && error "Ungültiges Laufwerk für GRUB!"
+
+    read -rp "Root-Partition (z.B. /dev/sda2): " ROOT_PARTITION
+    [[ ! -b "$ROOT_PARTITION" ]] && error "Ungültige Root-Partition!"
+
+    read -rp "EFI-Partition (z.B. /dev/sda1, leer lassen für BIOS/MBR): " EFI_PARTITION
+
+    FORMAT_EFI="n"
+    if [[ -n "$EFI_PARTITION" ]]; then
+        read -rp "Soll die EFI-Partition $EFI_PARTITION formatiert werden? (Nötig bei Neuinstallation, NEIN bei Dual-Boot!) [j/N]: " FORMAT_EFI
+    fi
+
+    warn "Die Root-Partition $ROOT_PARTITION wird jetzt formatiert!"
+    read -rp "Sicher? [JA/nein]: " CONFIRM
+    [[ "$CONFIRM" != "JA" ]] && error "Abgebrochen."
+
+    # Formatierung der ausgewählten Partitionen
+    info "Formatiere Root-Partition $ROOT_PARTITION..."
+    mkfs.ext4 -F "$ROOT_PARTITION" || error "Fehler beim Formatieren der Root-Partition."
+
+    if [[ -n "$EFI_PARTITION" ]] && [[ "$FORMAT_EFI" =~ ^[jJ]$ ]]; then
+        info "Formatiere EFI-Partition $EFI_PARTITION..."
+        mkfs.vfat -F32 "$EFI_PARTITION" || error "Fehler beim Formatieren der EFI-Partition."
+    fi
+
+    # Mounten
+    mkdir -p /mnt/target
+    mount "$ROOT_PARTITION" /mnt/target || error "Fehler beim Mounten der Root-Partition."
+
+    if [[ -n "$EFI_PARTITION" ]]; then
+        mkdir -p /mnt/target/boot/efi
+        mount "$EFI_PARTITION" /mnt/target/boot/efi || error "Fehler beim Mounten der EFI-Partition."
+    fi
+
+    # System kopieren (von Live-Umgebung auf Disk)
+    info "Kopiere System-Dateien (dies kann dauern)..."
+    rsync -aAXv --exclude={"/dev/*","/proc/*","/sys/*","/tmp/*","/run/*","/mnt/*","/media/*","/lost+found"} / /mnt/target/
+
+    # Root & User Setup
+    read -rp "Neuer Benutzername: " TARGET_USER
+    read -sp "Passwort für $TARGET_USER: " USER_PASS; echo ""
+    read -sp "Root-Passwort: " ROOT_PASS; echo ""
+
+    # Chroot Vorbereitung für Bootloader & User
+    info "Konfiguriere Bootloader und Benutzer..."
+    mount --bind /dev /mnt/target/dev
+    mount --bind /proc /mnt/target/proc
+    mount --bind /sys /mnt/target/sys
+
+    chroot /mnt/target /bin/bash << EOF
+useradd -m -s /bin/bash "$TARGET_USER"
+echo "$TARGET_USER:$USER_PASS" | chpasswd
+echo "root:$ROOT_PASS" | chpasswd
+usermod -aG sudo "$TARGET_USER"
+
+if [[ -n "$EFI_PARTITION" ]]; then
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=SnowFoxOS --recheck "$TARGET_DISK_GRUB" || true
+else
+    grub-install --target=i386-pc "$TARGET_DISK_GRUB" || true
+fi
+update-grub
+EOF
+    success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
+    
+    # Set TARGET_USER and TARGET_HOME for the rest of the script
+    TARGET_HOME="/mnt/target/home/$TARGET_USER"
+fi
+
+# ── Benutzer ermitteln ───────────────────────────────────────
+if [[ "$INSTALL_MODE" == "1" ]]; then
+    TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
+    if [[ -z "$TARGET_USER" || "$TARGET_USER" == "root" ]]; then
+        read -rp "Benutzername: " TARGET_USER
+    fi
+    TARGET_HOME="/home/$TARGET_USER"
+fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ ! -d "$TARGET_HOME" ]] && error "Home $TARGET_HOME nicht gefunden"
 
@@ -162,7 +308,7 @@ if [[ $XANMOD_EXIT -eq 0 ]]; then
         GRUB_PARAMS="quiet splash"
 
         if lspci | grep -qi nvidia; then
-            GRUB_PARAMS="$GRUB_PARAMS nvidia-drm.modeset=1"
+            GRUB_PARAMS="$GRUB_PARAMS nvidia-drm.modeset=1 nvidia.NVreg_PreserveVideoMemoryAllocations=1"
         fi
 
         # AMD+NVIDIA Hybrid: IOMMU aktivieren verhindert DRM Fence Timeout Freezes
@@ -173,6 +319,9 @@ if [[ $XANMOD_EXIT -eq 0 ]]; then
 
         sed -i "s/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"$GRUB_PARAMS\"/" /etc/default/grub
         sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=1/' /etc/default/grub
+        # os-prober aktivieren für Dual-Boot Erkennung
+        sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
+        echo "GRUB_DISABLE_OS_PROBER=false" >> /etc/default/grub
     fi
 
     # XanMod LTS als Standard setzen
@@ -286,6 +435,35 @@ except: pass
         # Hybrid-Modus als Standard setzen
         envycontrol -s hybrid 2>/dev/null || true
         success "GPU-Modus: hybrid"
+
+        # Multi-GPU Fix: Xorg Konfiguration für Desktop-Hybrid (NVIDIA + Motherboard AMD)
+        info "Erstelle spezifische Xorg-Konfiguration für Hybrid-Sync..."
+        cat > /etc/X11/xorg.conf.d/20-nvidia-hybrid.conf << XEOF
+Section "Device"
+    Identifier     "nvidia"
+    Driver         "nvidia"
+    BusID          "$(lspci | grep -i nvidia | head -n1 | cut -d' ' -f1 | sed 's/\./:/' | awk -F: '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')"
+    Option         "AllowEmptyInitialConfiguration"
+    Option         "PrimaryGPU" "yes"
+    Option         "TripleBuffer" "on"
+EndSection
+
+Section "OutputClass"
+    Identifier     "nvidia"
+    MatchDriver    "nvidia-drm"
+    Driver         "nvidia"
+    Option         "PrimaryGPU" "yes"
+    Option         "TripleBuffer" "on"
+EndSection
+
+Section "OutputClass"
+    Identifier     "amdgpu"
+    MatchDriver    "amdgpu"
+    Driver         "amdgpu"
+    Option         "TearFree" "true"
+EndSection
+XEOF
+        success "Hybrid-Sync Xorg-Config erweitert (TearFree für AMD)"
     fi
 
     XANMOD_KERNEL=$(ls /lib/modules 2>/dev/null | grep xanmod | sort -V | tail -1)
@@ -364,7 +542,9 @@ apt-get install -y \
     xserver-xorg-input-libinput \
     diodon \
     cups cups-bsd cups-client \
-    printer-driver-splix
+    printer-driver-splix \
+    gparted \
+    ntfs-3g
 
 # bluetui — Terminal Bluetooth Manager (kein blueman/GNOME)
 info "Installiere bluetui..."
@@ -962,6 +1142,7 @@ if [[ -d "$SCRIPT_DIR/configs" ]]; then
         sed -i 's/shadow = .*/shadow = true;/' "$CONFIG_DIR/picom.conf"
         sed -i 's/fading = .*/fading = false;/' "$CONFIG_DIR/picom.conf"
         sed -i 's/dock = { shadow = false; }/dock = { shadow = false; }/g' "$CONFIG_DIR/picom.conf"
+        sed -i '/backend = "glx";/a glx-no-rebind-pixmap = true;\nglx-no-stencil = true;\nuse-damage = false;' "$CONFIG_DIR/picom.conf"
     fi
 else
     warn "configs/-Verzeichnis nicht gefunden"
