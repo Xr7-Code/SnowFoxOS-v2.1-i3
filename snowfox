@@ -29,33 +29,27 @@ cmd_status() {
     echo -e "${PURPLE}${BOLD}  SnowFoxOS — System Status${RESET}"
     divider
 
-    # Uptime
     UPTIME=$(uptime -p | sed 's/up //')
     echo -e "${GRAY}  Uptime:     ${BOLD}${UPTIME}${RESET}"
 
-    # RAM
     RAM_TOTAL=$(awk '/^MemTotal:/ {print int($2/1024)}' /proc/meminfo)
     RAM_FREE=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo)
     RAM_USED=$((RAM_TOTAL - RAM_FREE))
     echo -e "${GRAY}  RAM:        ${BOLD}${RAM_USED}MB used / ${RAM_TOTAL}MB total (${RAM_FREE}MB free)${RESET}"
 
-    # Disk
     DISK_USED=$(df -h / | awk 'NR==2 {print $3}')
     DISK_TOTAL=$(df -h / | awk 'NR==2 {print $2}')
     DISK_FREE=$(df -h / | awk 'NR==2 {print $4}')
     echo -e "${GRAY}  Disk:       ${BOLD}${DISK_USED} used / ${DISK_TOTAL} total (${DISK_FREE} free)${RESET}"
 
-    # CPU
     CPU=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
     echo -e "${GRAY}  CPU:        ${BOLD}${CPU}${RESET}"
 
-    # GPU Modus
     if command -v envycontrol &>/dev/null; then
         GPU_MODE=$(envycontrol --query 2>/dev/null || echo "unbekannt")
         echo -e "${GRAY}  GPU-Modus:  ${BOLD}${GPU_MODE}${RESET}"
     fi
 
-    # Netzwerk
     IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}')
     IFACE=$(ip route get 1.1.1.1 2>/dev/null | awk '{print $5; exit}')
     if [[ -n "$IP" ]]; then
@@ -64,14 +58,12 @@ cmd_status() {
         echo -e "${GRAY}  Netzwerk:   ${BOLD}nicht verbunden${RESET}"
     fi
 
-    # Airmode Status
     if rfkill list all 2>/dev/null | grep -q "blocked: yes"; then
         echo -e "${GRAY}  Airmode:    ${RED}${BOLD}AKTIV — Funk deaktiviert${RESET}"
     else
         echo -e "${GRAY}  Airmode:    ${GREEN}${BOLD}aus${RESET}"
     fi
 
-    # Mikrofon Status
     MIC_ID=$(pactl list sources short 2>/dev/null | grep -v monitor | awk '{print $1}' | head -1)
     if [[ -n "$MIC_ID" ]]; then
         MIC_MUTE=$(pactl get-source-mute "$MIC_ID" 2>/dev/null | awk '{print $2}')
@@ -84,7 +76,6 @@ cmd_status() {
         echo -e "${GRAY}  Mikrofon:   ${GRAY}${BOLD}keines gefunden${RESET}"
     fi
 
-    # Kamera Status
     if ls /dev/video* &>/dev/null; then
         if v4l2-ctl --list-devices &>/dev/null; then
             echo -e "${GRAY}  Kamera:     ${GREEN}${BOLD}verfügbar${RESET}"
@@ -95,7 +86,6 @@ cmd_status() {
         echo -e "${GRAY}  Kamera:     ${GRAY}${BOLD}keine gefunden${RESET}"
     fi
 
-    # Aktives Profil
     PROFILE=$(cat "$HOME/.config/snowfox/profile" 2>/dev/null || echo "balanced")
     echo -e "${GRAY}  Profil:     ${BOLD}${PROFILE}${RESET}"
 
@@ -106,25 +96,69 @@ cmd_status() {
 # snowfox update
 # ============================================================
 cmd_update() {
-    fox "System wird aktualisiert..."
     divider
-    sudo apt-get update
-    sudo apt-get upgrade -y
-    sudo apt-get autoremove -y
-    sudo apt-get autoclean -y
+    echo -e "${PURPLE}${BOLD}  SnowFoxOS — System Update${RESET}"
+    divider
 
-    # yt-dlp separat aktualisieren — kommt nicht über apt
-    if command -v yt-dlp &>/dev/null; then
-        info "yt-dlp wird aktualisiert..."
-        sudo curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
-            -o /usr/local/bin/yt-dlp && \
-            sudo chmod +x /usr/local/bin/yt-dlp && \
-            ok "yt-dlp aktualisiert ($(yt-dlp --version))" || \
-            warn "yt-dlp konnte nicht aktualisiert werden"
-    fi
+    # Repo-Verzeichnis ermitteln
+    REPO_DIR=""
+    SCRIPT_PATH="$(readlink -f "$(which snowfox)" 2>/dev/null || echo "")"
+
+    # Suche update.sh an bekannten Stellen
+    for candidate in \
+        "$HOME/SnowFoxOS-v2.1-i3" \
+        "$HOME/SnowFoxOS" \
+        "/opt/snowfoxos" \
+        "$(dirname "$SCRIPT_PATH")/.."
+    do
+        if [[ -f "$candidate/update.sh" ]]; then
+            REPO_DIR="$candidate"
+            break
+        fi
+    done
+
+    echo ""
+    echo -e "  ${CYAN}1${RESET}) Nur Pakete aktualisieren (apt)"
+    echo -e "  ${CYAN}2${RESET}) Pakete + Configs + CLI aktualisieren (empfohlen)"
+    echo ""
+    read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-2]: "${RESET})" CHOICE
+
+    case "$CHOICE" in
+        1)
+            fox "Pakete werden aktualisiert..."
+            sudo apt-get update -qq
+            sudo apt-get upgrade -y
+            sudo apt-get autoremove -y
+            sudo apt-get autoclean -y
+
+            if command -v yt-dlp &>/dev/null; then
+                info "yt-dlp wird aktualisiert..."
+                sudo curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+                    -o /usr/local/bin/yt-dlp && \
+                    sudo chmod +x /usr/local/bin/yt-dlp && \
+                    ok "yt-dlp aktualisiert ($(yt-dlp --version))" || \
+                    warn "yt-dlp konnte nicht aktualisiert werden"
+            fi
+
+            ok "Pakete sind aktuell."
+            ;;
+        2)
+            if [[ -z "$REPO_DIR" ]]; then
+                warn "Repo-Verzeichnis nicht gefunden."
+                read -rp "$(echo -e ${PURPLE}${BOLD}"Pfad zum SnowFoxOS-Repo: "${RESET})" REPO_DIR
+                [[ ! -f "$REPO_DIR/update.sh" ]] && err "update.sh nicht gefunden in: $REPO_DIR" && exit 1
+            fi
+
+            fox "Starte vollständiges Update aus: ${BOLD}$REPO_DIR${RESET}"
+            bash "$REPO_DIR/update.sh"
+            ;;
+        *)
+            err "Ungültige Auswahl."
+            exit 1
+            ;;
+    esac
 
     divider
-    ok "System ist aktuell."
 }
 
 # ============================================================
@@ -306,10 +340,9 @@ cmd_stream() {
         URL="$QUERY"
     else
         fox "Suche auf YouTube: ${BOLD}$QUERY${RESET}..."
-        
-        # Holt Top 5 Ergebnisse (Titel|ID)
+
         mapfile -t RESULTS < <(yt-dlp --print "%(title)s|%(id)s" --flat-playlist "ytsearch5:$QUERY" 2>/dev/null)
-        
+
         if [[ ${#RESULTS[@]} -eq 0 ]]; then
             err "Keine Ergebnisse gefunden."
             return
@@ -326,13 +359,13 @@ cmd_stream() {
 
         read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-5]: "${RESET})" CHOICE
         [[ -z "$CHOICE" || ! "$CHOICE" =~ ^[1-5]$ ]] && return
-        
+
         ID=$(echo "${RESULTS[$((CHOICE-1))]}" | cut -d'|' -f2)
         URL="https://www.youtube.com/watch?v=$ID"
     fi
 
     fox "Starte Stream..."
-    mpv --vo=wlshm --ytdl "$URL" 2>/dev/null || mpv --ytdl "$URL"
+    mpv --ytdl "$URL"
 }
 
 # ============================================================
@@ -358,8 +391,12 @@ cmd_pass() {
             fi
             read -rsp "$(echo -e ${PURPLE}${BOLD}"Passwort für '$2': "${RESET})" PASS
             echo ""
-            ENTRY=$(echo "$2:$PASS" | gpg --symmetric --armor --batch --passphrase-fd 0 <<< "$(cat $PASS_FILE 2>/dev/null)")
-            echo "$2:$(echo "$PASS" | gpg --symmetric --armor -q 2>/dev/null)" >> "$PASS_FILE"
+            ENCRYPTED=$(echo "$PASS" | gpg --symmetric --armor -q 2>/dev/null)
+            if [[ -z "$ENCRYPTED" ]]; then
+                err "Verschlüsselung fehlgeschlagen."
+                exit 1
+            fi
+            echo "$2:$ENCRYPTED" >> "$PASS_FILE"
             chmod 600 "$PASS_FILE"
             ok "Passwort für '$2' gespeichert."
             ;;
@@ -378,7 +415,8 @@ cmd_pass() {
                 exit 1
             fi
             DECRYPTED=$(echo "$ENTRY" | gpg --decrypt -q 2>/dev/null)
-            echo -n "$DECRYPTED" | wl-copy 2>/dev/null || echo -n "$DECRYPTED" | xclip -selection clipboard 2>/dev/null
+            echo -n "$DECRYPTED" | xclip -selection clipboard 2>/dev/null || \
+                echo -n "$DECRYPTED" | xsel --clipboard --input 2>/dev/null
             ok "Passwort für '$2' in die Zwischenablage kopiert."
             ;;
         list)
@@ -450,10 +488,10 @@ cmd_tip() {
 SNOWFOX_SYSTEM_PROMPT='Du bist die eingebaute KI von SnowFoxOS — einem minimalen, schnellen und privatsphäre-fokussierten Linux-Desktop auf Basis von Debian 12.
 
 Du kennst dieses System in- und auswendig:
-- Desktop: Sway (Wayland Tiling Compositor) + Waybar + Wofi + Dunst + Swaylock
-- Terminal: Kitty | Browser: Brave | Audio: PipeWire | Dateimanager: Thunar
-- Wichtige Shortcuts: Super+Return=Terminal, Super+Space=Wofi, Super+B=Brave, Super+E=Thunar, Super+L=Sperren, Super+Q=Schließen, Super+Shift+E=Powermenu, Print=Screenshot
-- CLI Tool: snowfox — mit Befehlen: status, update, gpu, audit, airmode, kill, download, stream, pass, tip, ai, help
+- Desktop: i3 (X11 Tiling Window Manager) + Polybar + Rofi + Dunst
+- Terminal: Kitty | Browser: Zen Browser | Audio: PipeWire | Dateimanager: Thunar
+- Wichtige Shortcuts: Super+Return=Terminal, Super+Space=Rofi, Super+B=Browser, Super+E=Thunar, Super+L=Sperren, Super+Q=Schließen, Super+Shift+E=Powermenu, Print=Screenshot
+- CLI Tool: snowfox — mit Befehlen: status, update, gpu, audit, airmode, kill, download, stream, pass, tip, ai, battery, profile, autostart, network, help
 - GPU: automatische Erkennung, envycontrol für Hybrid-Systeme
 - Performance: zram (lz4, 50%), swappiness=10, minimale Dienste
 
@@ -475,7 +513,6 @@ cmd_ai() {
         exit 1
     fi
 
-    # Ollama starten falls nicht aktiv — merken ob wir es selbst gestartet haben
     OLLAMA_WAS_RUNNING=false
     if systemctl is-active ollama &>/dev/null; then
         OLLAMA_WAS_RUNNING=true
@@ -505,7 +542,6 @@ cmd_ai() {
 
     HISTORY=""
 
-    # Ollama beim Beenden wieder stoppen
     trap 'echo ""; fox "Bis zum nächsten Mal."; $OLLAMA_WAS_RUNNING || sudo systemctl stop ollama; exit 0' INT
 
     while true; do
@@ -545,10 +581,11 @@ cmd_help() {
     echo -e "  ${CYAN}${BOLD}snowfox airmode [on|off|status]${RESET} — Funk komplett deaktivieren"
     echo -e "  ${CYAN}${BOLD}snowfox kill [mic|cam|all|restore]${RESET} — Hardware deaktivieren"
     echo -e "  ${CYAN}${BOLD}snowfox download <URL>${RESET}      — Video/Audio herunterladen"
-    echo -e "  ${CYAN}${BOLD}snowfox stream <URL>${RESET}        — URL direkt streamen"
+    echo -e "  ${CYAN}${BOLD}snowfox stream <Suche|URL>${RESET}  — Video/Musik streamen"
     echo -e "  ${CYAN}${BOLD}snowfox pass [add|get|list|remove]${RESET} — Passwort-Manager"
     echo -e "  ${CYAN}${BOLD}snowfox tip${RESET}                 — Sicherheitstipp"
-    echo -e "  ${CYAN}${BOLD}snowfox network${RESET}             — Netzwerk-Manager (Wofi)"
+    echo -e "  ${CYAN}${BOLD}snowfox layout [tiling|floating]${RESET} — Fenstermodus wechseln"
+    echo -e "  ${CYAN}${BOLD}snowfox network${RESET}             — Netzwerk-Manager"
     echo -e "  ${CYAN}${BOLD}snowfox ai${RESET}                  — Offline-KI"
     echo -e "  ${CYAN}${BOLD}snowfox help${RESET}                — diese Hilfe"
     echo ""
@@ -574,11 +611,9 @@ cmd_battery() {
         return
     fi
 
-    # Status
     STATUS=$(cat "$BAT_PATH/status" 2>/dev/null || echo "Unbekannt")
     CAPACITY=$(cat "$BAT_PATH/capacity" 2>/dev/null || echo "?")
 
-    # Farbe je nach Ladestand
     if [[ "$CAPACITY" -ge 80 ]]; then
         CAP_COLOR="${GREEN}"
     elif [[ "$CAPACITY" -ge 30 ]]; then
@@ -587,7 +622,6 @@ cmd_battery() {
         CAP_COLOR="${RED}"
     fi
 
-    # Status-Icon
     case "$STATUS" in
         Charging)    STATUS_ICON="⚡ Lädt" ;;
         Discharging) STATUS_ICON="🔋 Entlädt" ;;
@@ -598,7 +632,6 @@ cmd_battery() {
     echo -e "${GRAY}  Status:     ${BOLD}${STATUS_ICON}${RESET}"
     echo -e "${GRAY}  Ladestand:  ${CAP_COLOR}${BOLD}${CAPACITY}%${RESET}"
 
-    # Energie in Watt — power_now oder current_now * voltage_now
     POWER_UW=0
     if [[ -f "$BAT_PATH/power_now" ]]; then
         POWER_UW=$(cat "$BAT_PATH/power_now" 2>/dev/null || echo 0)
@@ -612,7 +645,6 @@ cmd_battery() {
         echo -e "${GRAY}  Verbrauch:  ${BOLD}${POWER_W}W${RESET}"
     fi
 
-    # Kapazität in Wh — energy oder charge*voltage
     ENERGY_NOW=0
     ENERGY_FULL=0
     if [[ -f "$BAT_PATH/energy_full" && -f "$BAT_PATH/energy_now" ]]; then
@@ -631,7 +663,6 @@ cmd_battery() {
         echo -e "${GRAY}  Energie:    ${BOLD}${ENERGY_NOW_WH}Wh / ${ENERGY_FULL_WH}Wh${RESET}"
     fi
 
-    # Restlaufzeit schätzen
     if [[ "$POWER_UW" -gt 0 && "$ENERGY_NOW" -gt 0 ]]; then
         if [[ "$STATUS" == "Discharging" ]]; then
             MINUTES=$(echo "scale=0; ($ENERGY_NOW / $POWER_UW) * 60" | bc 2>/dev/null)
@@ -647,7 +678,6 @@ cmd_battery() {
         fi
     fi
 
-    # Akkugesundheit
     if [[ -f "$BAT_PATH/energy_full" && -f "$BAT_PATH/energy_full_design" ]]; then
         FULL=$(cat "$BAT_PATH/energy_full")
         DESIGN=$(cat "$BAT_PATH/energy_full_design")
@@ -678,53 +708,40 @@ cmd_profile() {
     case "$1" in
         performance)
             echo "performance" > "$PROFILE_FILE"
-            # CPU Governor auf performance
             echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor &>/dev/null || true
-            # swappiness hoch für mehr RAM-Nutzung
             sudo sysctl -w vm.swappiness=10 &>/dev/null
-            # wlsunset deaktivieren
-            pkill wlsunset 2>/dev/null || true
+            pkill redshift 2>/dev/null || true
             ok "Profil: ${BOLD}Performance${RESET}"
-            info "  CPU-Governor: performance | swappiness: 10 | wlsunset: aus"
+            info "  CPU-Governor: performance | swappiness: 10 | redshift: aus"
             ;;
         battery)
             echo "battery" > "$PROFILE_FILE"
-            # CPU Governor auf powersave
             echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor &>/dev/null || true
-            # swappiness erhöhen um RAM zu schonen
             sudo sysctl -w vm.swappiness=60 &>/dev/null
-            # wlsunset aktivieren
-            pkill wlsunset 2>/dev/null || true
-            wlsunset -l 48.3 -L 14.3 &>/dev/null &
+            pkill redshift 2>/dev/null || true
+            redshift -l 48.3:14.3 &>/dev/null &
             ok "Profil: ${BOLD}Battery${RESET}"
-            info "  CPU-Governor: powersave | swappiness: 60 | wlsunset: an"
+            info "  CPU-Governor: powersave | swappiness: 60 | redshift: an"
             ;;
         privacy)
             echo "privacy" > "$PROFILE_FILE"
-            # Alle Funkverbindungen aus
             sudo rfkill block wifi bluetooth &>/dev/null || true
-            # DNS auf lokalen Resolver
-            sudo resolvectl dns 2>/dev/null || true
-            # wlsunset deaktivieren
-            pkill wlsunset 2>/dev/null || true
+            pkill redshift 2>/dev/null || true
             ok "Profil: ${BOLD}Privacy${RESET}"
             info "  WiFi: aus | Bluetooth: aus | Funk: blockiert"
             warn "  Netzwerk deaktiviert — 'snowfox profile balanced' zum Zurücksetzen"
             ;;
         balanced|"")
             echo "balanced" > "$PROFILE_FILE"
-            # CPU Governor auf schedutil (Standard)
             echo schedutil | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor &>/dev/null || true
             sudo sysctl -w vm.swappiness=10 &>/dev/null
-            # Funk wieder aktivieren falls privacy aktiv war
             sudo rfkill unblock all &>/dev/null || true
-            # wlsunset aktivieren
-            pkill wlsunset 2>/dev/null || true
-            wlsunset -l 48.3 -L 14.3 &>/dev/null &
+            pkill redshift 2>/dev/null || true
+            redshift -l 48.3:14.3 &>/dev/null &
             ok "Profil: ${BOLD}Balanced${RESET}"
-            info "  CPU-Governor: schedutil | swappiness: 10 | wlsunset: an"
+            info "  CPU-Governor: schedutil | swappiness: 10 | redshift: an"
             ;;
-        status|"")
+        status)
             divider
             echo -e "${PURPLE}${BOLD}  SnowFoxOS — Aktives Profil${RESET}"
             divider
@@ -732,8 +749,8 @@ cmd_profile() {
             echo ""
             echo -e "  Verfügbare Profile:"
             echo -e "  ${CYAN}balanced${RESET}     — Standard, ausgewogen"
-            echo -e "  ${CYAN}performance${RESET}  — maximale CPU-Leistung, wlsunset aus"
-            echo -e "  ${CYAN}battery${RESET}      — Akku sparen, CPU gedrosselt, wlsunset an"
+            echo -e "  ${CYAN}performance${RESET}  — maximale CPU-Leistung"
+            echo -e "  ${CYAN}battery${RESET}      — Akku sparen, CPU gedrosselt"
             echo -e "  ${CYAN}privacy${RESET}      — kein Funk, maximale Isolation"
             divider
             ;;
@@ -745,15 +762,14 @@ cmd_profile() {
 }
 
 # ============================================================
-# snowfox start
+# snowfox autostart
 # ============================================================
+I3_CONFIG="$HOME/.config/i3/config"
+
 cmd_start() {
-    SWAY_CONFIG="$HOME/.config/sway/config"
+    ENTRIES=$(grep -n "^exec " "$I3_CONFIG" 2>/dev/null)
 
-    # Alle exec-Zeilen aus sway config lesen
-    ENTRIES=$(grep -n "^exec " "$SWAY_CONFIG" 2>/dev/null | grep -v "exec_always")
-
-    if [[ -z "$ENTRIES" ]]; then
+    if [[ -z "$ENTRIES" && "$1" != "list" && -z "$1" ]]; then
         warn "Keine Autostart-Einträge gefunden."
         return
     fi
@@ -765,15 +781,11 @@ cmd_start() {
             divider
             echo ""
             while IFS= read -r entry; do
-                LINE_NUM=$(echo "$entry" | cut -d: -f1)
                 CMD=$(echo "$entry" | cut -d: -f2- | sed 's/^exec //')
-                # Prüfen ob auskommentiert
-                COMMENTED=$(grep -c "^#.*exec.*$(echo "$CMD" | cut -d' ' -f1)" "$SWAY_CONFIG" 2>/dev/null || echo 0)
                 echo -e "  ${GREEN}${BOLD}[AN]${RESET}  ${CYAN}${CMD}${RESET}"
             done <<< "$ENTRIES"
 
-            # Auskommentierte exec-Zeilen
-            DISABLED=$(grep -n "^#exec " "$SWAY_CONFIG" 2>/dev/null)
+            DISABLED=$(grep -n "^#exec " "$I3_CONFIG" 2>/dev/null)
             if [[ -n "$DISABLED" ]]; then
                 while IFS= read -r entry; do
                     CMD=$(echo "$entry" | cut -d: -f2- | sed 's/^#exec //')
@@ -787,28 +799,28 @@ cmd_start() {
             ;;
         disable)
             if [[ -z "$2" ]]; then
-                err "Verwendung: snowfox start disable <programm>"
+                err "Verwendung: snowfox autostart disable <programm>"
                 exit 1
             fi
-            if grep -q "^exec.*$2" "$SWAY_CONFIG"; then
-                sed -i "s|^exec \(.*$2.*\)|#exec \1|" "$SWAY_CONFIG"
-                ok "$2 deaktiviert — wirksam nach: swaymsg reload"
-                swaymsg reload 2>/dev/null || true
+            if grep -q "^exec.*$2" "$I3_CONFIG"; then
+                sed -i "s|^exec \(.*$2.*\)|#exec \1|" "$I3_CONFIG"
+                i3-msg reload &>/dev/null || true
+                ok "$2 deaktiviert."
             else
-                err "$2 nicht gefunden oder bereits deaktiviert"
+                err "$2 nicht gefunden oder bereits deaktiviert."
             fi
             ;;
         enable)
             if [[ -z "$2" ]]; then
-                err "Verwendung: snowfox start enable <programm>"
+                err "Verwendung: snowfox autostart enable <programm>"
                 exit 1
             fi
-            if grep -q "^#exec.*$2" "$SWAY_CONFIG"; then
-                sed -i "s|^#exec \(.*$2.*\)|exec \1|" "$SWAY_CONFIG"
-                ok "$2 aktiviert — wirksam nach: swaymsg reload"
-                swaymsg reload 2>/dev/null || true
+            if grep -q "^#exec.*$2" "$I3_CONFIG"; then
+                sed -i "s|^#exec \(.*$2.*\)|exec \1|" "$I3_CONFIG"
+                i3-msg reload &>/dev/null || true
+                ok "$2 aktiviert."
             else
-                err "$2 nicht gefunden oder bereits aktiv"
+                err "$2 nicht gefunden oder bereits aktiv."
             fi
             ;;
         *)
@@ -816,26 +828,78 @@ cmd_start() {
             ;;
     esac
 }
+
+# ============================================================
+# Dispatcher
+# ============================================================
 case "$1" in
-    status)   cmd_status ;;
-    update)   cmd_update ;;
-    gpu)      cmd_gpu ;;
-    audit)    cmd_audit ;;
-    airmode)  cmd_airmode "$2" ;;
-    kill)     cmd_kill "$2" ;;
-    download) cmd_download "$2" ;;
-    stream)   cmd_stream "$2" ;;
-    pass)     cmd_pass "$2" "$3" ;;
-    tip)      cmd_tip ;;
-    ai)       cmd_ai ;;
-    battery)  cmd_battery ;;
-    profile)  cmd_profile "$2" ;;
-    autostart)    cmd_start "$2" "$3" ;;
-    network)  exec ~/.config/snowfox-network.sh ;;
-    help|"")  cmd_help ;;
+    status)    cmd_status ;;
+    update)    cmd_update ;;
+    gpu)       cmd_gpu ;;
+    audit)     cmd_audit ;;
+    airmode)   cmd_airmode "$2" ;;
+    kill)      cmd_kill "$2" ;;
+    download)  cmd_download "$2" ;;
+    stream)    cmd_stream "$2" ;;
+    pass)      cmd_pass "$2" "$3" ;;
+    tip)       cmd_tip ;;
+    ai)        cmd_ai ;;
+    battery)   cmd_battery ;;
+    profile)   cmd_profile "$2" ;;
+    autostart) cmd_start "$2" "$3" ;;
+    layout)    cmd_layout "$2" ;;
+    network)   exec ~/.config/snowfox-network.sh ;;
+    help|"")   cmd_help ;;
     *)
         err "Unbekannter Befehl: $1"
         echo -e "  Hilfe: ${CYAN}snowfox help${RESET}"
         exit 1
         ;;
 esac
+
+# ============================================================
+# snowfox layout
+# ============================================================
+cmd_layout() {
+    case "$1" in
+        tiling)
+            # Alle neuen Fenster gekachelt
+            i3-msg "workspace_layout default" &>/dev/null
+            i3-msg "[class=\".*\"] floating disable" &>/dev/null || true
+            # Floating-Modifier bleibt aktiv aber neue Fenster sind tiled
+            sed -i 's/^for_window \[class=".*"\] floating enable/# for_window [class=".*"] floating enable/' \
+                ~/.config/i3/config 2>/dev/null || true
+            i3-msg reload &>/dev/null
+            ok "Layout: ${BOLD}Tiling${RESET}"
+            info "  Neue Fenster werden nebeneinander angeordnet (i3-Standard)"
+            ;;
+        floating)
+            # Alle neuen Fenster floating — klassischer Desktop-Modus
+            # Eintrag setzen oder ersetzen
+            if grep -q 'for_window \[class=".*"\] floating enable' ~/.config/i3/config 2>/dev/null; then
+                sed -i 's/^# for_window \[class=".*"\] floating enable/for_window [class=".*"] floating enable/' \
+                    ~/.config/i3/config
+            else
+                echo 'for_window [class=".*"] floating enable' >> ~/.config/i3/config
+            fi
+            i3-msg reload &>/dev/null
+            ok "Layout: ${BOLD}Floating${RESET}"
+            info "  Neue Fenster schweben frei — klassischer Desktop-Modus"
+            warn "  Zurück zu Tiling: snowfox layout tiling"
+            ;;
+        status|"")
+            # Aktuellen Modus erkennen
+            if grep -q '^for_window \[class=".*"\] floating enable' ~/.config/i3/config 2>/dev/null; then
+                fox "Aktives Layout: ${BOLD}Floating${RESET} (klassischer Desktop)"
+            else
+                fox "Aktives Layout: ${BOLD}Tiling${RESET} (i3-Standard)"
+            fi
+            echo ""
+            echo -e "  ${CYAN}snowfox layout tiling${RESET}    — Fenster nebeneinander (Standard)"
+            echo -e "  ${CYAN}snowfox layout floating${RESET}  — Fenster schwebend (klassischer Desktop)"
+            ;;
+        *)
+            err "Verwendung: snowfox layout [tiling|floating|status]"
+            ;;
+    esac
+}
