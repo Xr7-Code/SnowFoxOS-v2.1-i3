@@ -830,34 +830,6 @@ cmd_start() {
 }
 
 # ============================================================
-# Dispatcher
-# ============================================================
-case "$1" in
-    status)    cmd_status ;;
-    update)    cmd_update ;;
-    gpu)       cmd_gpu ;;
-    audit)     cmd_audit ;;
-    airmode)   cmd_airmode "$2" ;;
-    kill)      cmd_kill "$2" ;;
-    download)  cmd_download "$2" ;;
-    stream)    cmd_stream "$2" ;;
-    pass)      cmd_pass "$2" "$3" ;;
-    tip)       cmd_tip ;;
-    ai)        cmd_ai ;;
-    battery)   cmd_battery ;;
-    profile)   cmd_profile "$2" ;;
-    autostart) cmd_start "$2" "$3" ;;
-    layout)    cmd_layout "$2" ;;
-    network)   exec ~/.config/snowfox-network.sh ;;
-    help|"")   cmd_help ;;
-    *)
-        err "Unbekannter Befehl: $1"
-        echo -e "  Hilfe: ${CYAN}snowfox help${RESET}"
-        exit 1
-        ;;
-esac
-
-# ============================================================
 # snowfox layout
 # ============================================================
 cmd_layout() {
@@ -903,3 +875,31 @@ cmd_layout() {
             ;;
     esac
 }
+
+# ============================================================
+# Dispatcher
+# ============================================================
+case "$1" in
+    status)    cmd_status ;;
+    update)    cmd_update ;;
+    gpu)       cmd_gpu ;;
+    audit)     cmd_audit ;;
+    airmode)   cmd_airmode "$2" ;;
+    kill)      cmd_kill "$2" ;;
+    download)  cmd_download "$2" ;;
+    stream)    cmd_stream "$2" ;;
+    pass)      cmd_pass "$2" "$3" ;;
+    tip)       cmd_tip ;;
+    ai)        cmd_ai ;;
+    battery)   cmd_battery ;;
+    profile)   cmd_profile "$2" ;;
+    autostart) cmd_start "$2" "$3" ;;
+    layout)    cmd_layout "$2" ;;
+    network)   exec ~/.config/snowfox-network.sh ;;
+    help|"")   cmd_help ;;
+    *)
+        err "Unbekannter Befehl: $1"
+        echo -e "  Hilfe: ${CYAN}snowfox help${RESET}"
+        exit 1
+        ;;
+esac
