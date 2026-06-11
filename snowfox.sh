@@ -102,24 +102,26 @@ cmd_update() {
 
     # Repo-Verzeichnis ermitteln
     REPO_DIR=""
-    SCRIPT_PATH="$(readlink -f "$(which snowfox)" 2>/dev/null || echo "")"
-
-    # Suche update.sh an bekannten Stellen
     for candidate in \
         "$HOME/SnowFoxOS-v2.1-i3" \
         "$HOME/SnowFoxOS" \
-        "/opt/snowfoxos" \
-        "$(dirname "$SCRIPT_PATH")/.."
+        "/opt/snowfoxos"
     do
-        if [[ -f "$candidate/update.sh" ]]; then
+        if [[ -d "$candidate/.git" ]]; then
             REPO_DIR="$candidate"
             break
         fi
     done
 
+    if [[ -z "$REPO_DIR" ]]; then
+        warn "Repo-Verzeichnis nicht gefunden."
+        read -rp "$(echo -e ${PURPLE}${BOLD}"Pfad zum SnowFoxOS-Repo: "${RESET})" REPO_DIR
+        [[ ! -d "$REPO_DIR/.git" ]] && err "Kein Git-Repo gefunden in: $REPO_DIR" && exit 1
+    fi
+
     echo ""
     echo -e "  ${CYAN}1${RESET}) Nur Pakete aktualisieren (apt)"
-    echo -e "  ${CYAN}2${RESET}) Pakete + Configs + CLI aktualisieren (empfohlen)"
+    echo -e "  ${CYAN}2${RESET}) Alles aktualisieren — Repo + Configs + CLI + Pakete (empfohlen)"
     echo ""
     read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-2]: "${RESET})" CHOICE
 
@@ -139,18 +141,65 @@ cmd_update() {
                     ok "yt-dlp aktualisiert ($(yt-dlp --version))" || \
                     warn "yt-dlp konnte nicht aktualisiert werden"
             fi
-
             ok "Pakete sind aktuell."
             ;;
         2)
-            if [[ -z "$REPO_DIR" ]]; then
-                warn "Repo-Verzeichnis nicht gefunden."
-                read -rp "$(echo -e ${PURPLE}${BOLD}"Pfad zum SnowFoxOS-Repo: "${RESET})" REPO_DIR
-                [[ ! -f "$REPO_DIR/update.sh" ]] && err "update.sh nicht gefunden in: $REPO_DIR" && exit 1
+            # ── Repo aktualisieren ───────────────────────────
+            fox "Repo wird aktualisiert: ${BOLD}$REPO_DIR${RESET}"
+            cd "$REPO_DIR" || { err "Konnte nicht nach $REPO_DIR wechseln."; exit 1; }
+
+            LOCAL=$(git rev-parse HEAD 2>/dev/null)
+            git pull --ff-only 2>&1 | while IFS= read -r line; do info "  $line"; done
+            REMOTE=$(git rev-parse HEAD 2>/dev/null)
+
+            if [[ "$LOCAL" == "$REMOTE" ]]; then
+                ok "Repo bereits aktuell."
+            else
+                ok "Repo aktualisiert (${LOCAL:0:7} → ${REMOTE:0:7})"
             fi
 
-            fox "Starte vollständiges Update aus: ${BOLD}$REPO_DIR${RESET}"
-            bash "$REPO_DIR/update.sh"
+            # ── Backup ──────────────────────────────────────
+            BACKUP_DIR="$HOME/.snowfox-backup/$(date +%Y%m%d_%H%M%S)"
+            mkdir -p "$BACKUP_DIR"
+            for dir in i3 polybar rofi dunst kitty; do
+                [[ -e "$HOME/.config/$dir" ]] && cp -r "$HOME/.config/$dir" "$BACKUP_DIR/"
+            done
+            [[ -f /usr/local/bin/snowfox ]] && cp /usr/local/bin/snowfox "$BACKUP_DIR/snowfox.bak"
+            ok "Backup gespeichert → $BACKUP_DIR"
+
+            # ── CLI aktualisieren ────────────────────────────
+            sudo cp "$REPO_DIR/snowfox" /usr/local/bin/snowfox
+            sudo chmod +x /usr/local/bin/snowfox
+            ok "snowfox CLI aktualisiert"
+
+            # ── Configs aktualisieren ────────────────────────
+            if [[ -d "$REPO_DIR/configs" ]]; then
+                cp -r "$REPO_DIR/configs/"* "$HOME/.config/"
+                ok "Configs aktualisiert"
+                i3-msg reload &>/dev/null && ok "i3 neu geladen"
+                if pgrep -x polybar &>/dev/null; then
+                    pkill polybar
+                    sleep 0.5
+                    bash "$HOME/.config/polybar/launch.sh" &
+                    ok "Polybar neu gestartet"
+                fi
+            fi
+
+            # ── Pakete aktualisieren ─────────────────────────
+            fox "Pakete werden aktualisiert..."
+            sudo apt-get update -qq
+            sudo apt-get upgrade -y
+            sudo apt-get autoremove -y
+
+            if command -v yt-dlp &>/dev/null; then
+                sudo curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+                    -o /usr/local/bin/yt-dlp && sudo chmod +x /usr/local/bin/yt-dlp && \
+                    ok "yt-dlp aktualisiert" || warn "yt-dlp konnte nicht aktualisiert werden"
+            fi
+
+            divider
+            ok "System vollständig aktualisiert."
+            info "  Bei Problemen: cp -r $BACKUP_DIR/* ~/.config/"
             ;;
         *)
             err "Ungültige Auswahl."
@@ -857,7 +906,7 @@ cmd_layout() {
             i3-msg reload &>/dev/null
             ok "Layout: ${BOLD}Floating${RESET}"
             info "  Neue Fenster schweben frei — klassischer Desktop-Modus"
-            warn "  Zurück zu Tiling: snowfox layout tiling"
+            info "  Tipp: snowfox layout tiling zum Zurückwechseln"
             ;;
         status|"")
             # Aktuellen Modus erkennen
