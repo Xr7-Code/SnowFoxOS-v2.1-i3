@@ -48,7 +48,7 @@ if [[ ! -f /etc/debian_version ]] || ! grep -q "^12\." /etc/debian_version; then
 fi
 
 # ── Phase 0: Installations-Ziel ──────────────────────────────
-step "0/10 — Installations-Modus"
+step "0/11 — Installations-Modus"
 echo -e "Wie möchtest du SnowFoxOS installieren?"
 echo -e "1) ${BOLD}Aktuelles System konfigurieren${RESET} (Du hast Debian schon installiert)"
 echo -e "2) ${BOLD}Automatische Installation auf ausgewählter Festplatte${RESET} (Alle Daten werden gelöscht!)"
@@ -109,11 +109,11 @@ grub-install --target=i386-pc "$TARGET_DISK" || true
 update-grub
 EOF
     success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
-    
+
     # Wir wechseln das Arbeitsverzeichnis für den Rest des Skripts auf die neue Platte
     TARGET_HOME="/mnt/target/home/$TARGET_USER"
     # Ab hier läuft das Skript weiter und konfiguriert die Software auf der neuen Platte
-    # (Um das Skript einfach zu halten, empfehlen wir hier einen Reboot in das neue System 
+    # (Um das Skript einfach zu halten, empfehlen wir hier einen Reboot in das neue System
     # und dort den normalen Setup-Lauf, aber wir führen es hier direkt aus)
 fi
     # Set TARGET_USER and TARGET_HOME for the rest of the script
@@ -186,7 +186,7 @@ fi
 update-grub
 EOF
     success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
-    
+
     # Set TARGET_USER and TARGET_HOME for the rest of the script
     TARGET_HOME="/mnt/target/home/$TARGET_USER"
 fi
@@ -208,7 +208,7 @@ sleep 1
 # ============================================================
 # SCHRITT 1 — System & Repositories
 # ============================================================
-step "1/10 — System aktualisieren"
+step "1/11 — System aktualisieren"
 
 # DKMS-Hooks temporär deaktivieren
 DKMS_HOOKS=(
@@ -347,7 +347,7 @@ fi
 # ============================================================
 # SCHRITT 2 — Hardware-Erkennung & Treiber
 # ============================================================
-step "2/10 — Hardware-Analyse & Treiber"
+step "2/11 — Hardware-Analyse & Treiber"
 
 IS_LAPTOP=false
 [[ "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null)" =~ ^(8|9|10|14)$ ]] && IS_LAPTOP=true
@@ -502,7 +502,7 @@ success "GPU-Treiber eingerichtet"
 # ============================================================
 # SCHRITT 3 — i3 Desktop
 # ============================================================
-step "3/10 — i3 + Polybar + Rofi + Dunst + i3lock"
+step "3/11 — i3 + Polybar + Rofi + Dunst + i3lock"
 
 wait_apt
 apt-get install -y \
@@ -642,7 +642,7 @@ curl -L "$NERD_URL" -o /tmp/JetBrainsMono.zip 2>/dev/null && \
 # ============================================================
 # SCHRITT 4 — Audio (PipeWire)
 # ============================================================
-step "4/10 — Audio (PipeWire)"
+step "4/11 — Audio (PipeWire)"
 
 wait_apt
 apt-get install -y \
@@ -661,7 +661,7 @@ success "PipeWire installiert"
 # ============================================================
 # SCHRITT 5 — Terminal & Apps
 # ============================================================
-step "5/10 — Terminal & Standard-Apps"
+step "5/11 — Terminal & Standard-Apps"
 
 wait_apt
 apt-get install -y \
@@ -715,6 +715,42 @@ if ask_install "OnlyOffice"; then
     apt-get install -y onlyoffice-desktopeditors && success "OnlyOffice installiert" || warn "OnlyOffice fehlgeschlagen"
 fi
 
+if ask_install "Logseq (Notizen / Wissensdatenbank)"; then
+    info "Installiere Logseq..."
+    LOGSEQ_URL=$(curl -sf https://api.github.com/repos/logseq/logseq/releases/latest 2>/dev/null \
+        | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for a in data.get('assets', []):
+        if a['name'].endswith('.AppImage'):
+            print(a['browser_download_url'])
+            break
+except: pass
+" 2>/dev/null)
+    if [[ -n "$LOGSEQ_URL" ]]; then
+        mkdir -p "$TARGET_HOME/Applications"
+        curl -L "$LOGSEQ_URL" -o "$TARGET_HOME/Applications/logseq.AppImage"
+        chmod +x "$TARGET_HOME/Applications/logseq.AppImage"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/Applications"
+
+        mkdir -p "$TARGET_HOME/.local/share/applications"
+        cat > "$TARGET_HOME/.local/share/applications/logseq.desktop" << LSEOF
+[Desktop Entry]
+Name=Logseq
+Comment=Knowledge base / Notizen
+Exec=$TARGET_HOME/Applications/logseq.AppImage --no-sandbox %U
+Icon=accessories-text-editor
+Type=Application
+Categories=Office;
+LSEOF
+        chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local/share/applications/logseq.desktop"
+        success "Logseq installiert (AppImage)"
+    else
+        warn "Logseq AppImage nicht gefunden — manuell installieren"
+    fi
+fi
+
 # yt-dlp
 curl -sL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
     -o /usr/local/bin/yt-dlp && chmod +x /usr/local/bin/yt-dlp
@@ -723,18 +759,19 @@ success "yt-dlp installiert"
 # ============================================================
 # SCHRITT 6 — Browser
 # ============================================================
-step "6/10 — Browser"
+step "6/11 — Browser"
 
 echo ""
 echo -e "${PURPLE}${BOLD}  Browser Wahl:${RESET}"
 echo -e "  1) Zen Browser  (Firefox-Basis, Privacy — empfohlen)"
-echo -e "  2) LibreWolf    (gehärteter Firefox, max. Privacy)"
-echo -e "  3) Brave        (Chromium-Basis, Privacy)"
-echo -e "  4) Firefox-ESR  (Standard, stabil)"
-echo -e "  5) Chromium     (leicht)"
-echo -e "  6) Keinen"
+echo -e "  2) Helium       (Chromium-Basis, ungoogled, max. Privacy)"
+echo -e "  3) LibreWolf    (gehärteter Firefox, max. Privacy)"
+echo -e "  4) Brave        (Chromium-Basis, Privacy)"
+echo -e "  5) Firefox-ESR  (Standard, stabil)"
+echo -e "  6) Chromium     (leicht)"
+echo -e "  7) Keinen"
 echo ""
-read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-6]: "${RESET})" BROWSER_CHOICE
+read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-7]: "${RESET})" BROWSER_CHOICE
 
 DEFAULT_BROWSER_DESKTOP="firefox-esr.desktop"
 case "$BROWSER_CHOICE" in
@@ -777,6 +814,49 @@ EOF
             DEFAULT_BROWSER_DESKTOP="firefox-esr.desktop"
         fi ;;
     2)
+        info "Installiere Helium Browser..."
+        HELIUM_URL=""
+        HELIUM_JSON=$(curl -sf https://api.github.com/repos/imputnet/helium-linux/releases/latest 2>/dev/null)
+        if [[ -n "$HELIUM_JSON" ]]; then
+            HELIUM_URL=$(echo "$HELIUM_JSON" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for a in data.get('assets', []):
+        if a['name'].endswith('x86_64.AppImage'):
+            print(a['browser_download_url'])
+            break
+except: pass
+" 2>/dev/null)
+        fi
+        if [[ -n "$HELIUM_URL" ]]; then
+            curl -L "$HELIUM_URL" -o /opt/helium-browser.AppImage
+            chmod +x /opt/helium-browser.AppImage
+            apt-get install -y libfuse2 2>/dev/null || true
+
+            # Sandbox ohne --no-sandbox ermöglichen
+            echo 'kernel.unprivileged_userns_clone=1' > /etc/sysctl.d/99-userns.conf
+            sysctl -p /etc/sysctl.d/99-userns.conf > /dev/null 2>&1 || true
+
+            cat > /usr/share/applications/helium-browser.desktop << 'EOF'
+[Desktop Entry]
+Name=Helium Browser
+Comment=Privacy-focused Chromium-based browser
+Exec=/opt/helium-browser.AppImage %u
+Icon=chromium
+Type=Application
+Categories=Network;WebBrowser;
+MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;
+StartupNotify=true
+EOF
+            DEFAULT_BROWSER_DESKTOP="helium-browser.desktop"
+            success "Helium Browser installiert"
+        else
+            warn "Helium Browser nicht verfügbar — Fallback: Firefox-ESR"
+            apt-get install -y firefox-esr
+            DEFAULT_BROWSER_DESKTOP="firefox-esr.desktop"
+        fi ;;
+    3)
         curl -fsSL https://deb.librewolf.net/keyring.gpg \
             | gpg --dearmor | tee /usr/share/keyrings/librewolf.gpg > /dev/null
         echo "deb [signed-by=/usr/share/keyrings/librewolf.gpg arch=amd64] https://deb.librewolf.net bookworm main" \
@@ -784,7 +864,7 @@ EOF
         wait_apt; apt-get update -qq
         apt-get install -y librewolf && success "LibreWolf installiert" || warn "LibreWolf fehlgeschlagen"
         DEFAULT_BROWSER_DESKTOP="librewolf.desktop" ;;
-    3)
+    4)
         curl -fsS https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
             | tee /usr/share/keyrings/brave-browser-archive-keyring.gpg > /dev/null
         echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
@@ -792,11 +872,11 @@ EOF
         wait_apt; apt-get update -qq; apt-get install -y brave-browser
         DEFAULT_BROWSER_DESKTOP="brave-browser.desktop"
         success "Brave installiert" ;;
-    4)
+    5)
         apt-get install -y firefox-esr
         DEFAULT_BROWSER_DESKTOP="firefox-esr.desktop"
         success "Firefox-ESR installiert" ;;
-    5)
+    6)
         apt-get install -y chromium
         DEFAULT_BROWSER_DESKTOP="chromium.desktop"
         success "Chromium installiert" ;;
@@ -807,7 +887,7 @@ esac
 # ============================================================
 # SCHRITT 7 — Steam & Gaming
 # ============================================================
-step "7/10 — Steam & Gaming"
+step "7/11 — Steam & Gaming"
 
 if ask_install "Steam"; then
     wait_apt
@@ -850,7 +930,7 @@ fi
 # ============================================================
 # SCHRITT 7b — Ollama (Lokale KI)
 # ============================================================
-step "7b/10 — Ollama (Lokale KI)"
+step "7b/11 — Ollama (Lokale KI)"
 
 if ask_install "Ollama (lokale KI, kein Modell — nur Engine)"; then
     info "Installiere Ollama..."
@@ -865,9 +945,86 @@ if ask_install "Ollama (lokale KI, kein Modell — nur Engine)"; then
 fi
 
 # ============================================================
-# SCHRITT 8 — Performance & Sicherheit
+# SCHRITT 8 — Zusatzwerkzeuge (lf, udiskie)
 # ============================================================
-step "8/10 — Performance & Sicherheit"
+step "8/11 — Zusatzwerkzeuge (lf, udiskie)"
+
+# ── lf Dateimanager (Terminal, mit Bildvorschau via Kitty) ───
+info "Installiere lf..."
+LF_TMP=$(mktemp -d)
+curl -Lo "$LF_TMP/lf.tar.gz" "https://github.com/gokcehan/lf/releases/latest/download/lf-linux-amd64.tar.gz"
+tar -xzf "$LF_TMP/lf.tar.gz" -C /usr/local/bin/
+rm -rf "$LF_TMP"
+
+# Vorschau-Abhängigkeiten
+apt-get install -y ffmpegthumbnailer poppler-utils bat unar
+success "lf installiert"
+
+# lf-Konfiguration aus dem Repo kopieren
+if [[ -d "$SCRIPT_DIR/configs/lf" ]]; then
+    mkdir -p "$TARGET_HOME/.config/lf"
+    cp "$SCRIPT_DIR/configs/lf/lfrc" "$TARGET_HOME/.config/lf/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/configs/lf/preview.sh" "$TARGET_HOME/.config/lf/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/configs/lf/cleaner.sh" "$TARGET_HOME/.config/lf/" 2>/dev/null || true
+    chmod +x "$TARGET_HOME/.config/lf/preview.sh" "$TARGET_HOME/.config/lf/cleaner.sh" 2>/dev/null || true
+    success "lf-Konfiguration installiert"
+fi
+
+# ── udiskie — Auto-Mount für USB-Geräte ─────────────────────
+info "Installiere udiskie..."
+apt-get install -y udiskie
+success "udiskie installiert"
+
+# ── Desktop-Einträge: lf, nmtui, bluetui ─────────────────────
+mkdir -p "$TARGET_HOME/.local/share/applications"
+if [[ -d "$SCRIPT_DIR/configs/applications" ]]; then
+    cp "$SCRIPT_DIR/configs/applications/"*.desktop "$TARGET_HOME/.local/share/applications/" 2>/dev/null || true
+else
+    cat > "$TARGET_HOME/.local/share/applications/lf.desktop" << 'EOF'
+[Desktop Entry]
+Name=Dateien
+Exec=kitty -e lf
+Icon=system-file-manager
+Type=Application
+Categories=System;FileManager;
+EOF
+    cat > "$TARGET_HOME/.local/share/applications/nmtui.desktop" << 'EOF'
+[Desktop Entry]
+Name=Netzwerk
+Exec=kitty -e nmtui
+Icon=network-wireless
+Type=Application
+Categories=Network;System;
+EOF
+    cat > "$TARGET_HOME/.local/share/applications/bluetui.desktop" << 'EOF'
+[Desktop Entry]
+Name=Bluetooth
+Exec=kitty -e bluetui
+Icon=bluetooth
+Type=Application
+Categories=System;
+EOF
+fi
+success "Desktop-Einträge (lf, Netzwerk, Bluetooth) installiert"
+
+# ── i3: udiskie Autostart + mod+e auf lf ─────────────────────
+I3_CONFIG_PATH="$TARGET_HOME/.config/i3/config"
+if [[ -f "$I3_CONFIG_PATH" ]]; then
+    grep -q "udiskie --tray" "$I3_CONFIG_PATH" || \
+        echo 'exec --no-startup-id udiskie --tray' >> "$I3_CONFIG_PATH"
+
+    if grep -q '^bindsym \$mod+e' "$I3_CONFIG_PATH"; then
+        sed -i 's|^bindsym \$mod+e.*|bindsym $mod+e exec kitty -e lf|' "$I3_CONFIG_PATH"
+    else
+        echo 'bindsym $mod+e exec kitty -e lf' >> "$I3_CONFIG_PATH"
+    fi
+    success "i3: udiskie Autostart + mod+e auf lf gesetzt"
+fi
+
+# ============================================================
+# SCHRITT 9 — Performance & Sicherheit
+# ============================================================
+step "9/11 — Performance & Sicherheit"
 
 wait_apt
 apt-get install -y zram-tools earlyoom ufw
@@ -971,9 +1128,9 @@ sed -i 's/#HandlePowerKey=.*/HandlePowerKey=ignore/' /etc/systemd/logind.conf
 success "Performance & Sicherheit optimiert"
 
 # ============================================================
-# SCHRITT 9 — Plymouth & Branding
+# SCHRITT 10 — Plymouth & Branding
 # ============================================================
-step "9/10 — Plymouth & Boot-Screen"
+step "10/11 — Plymouth & Boot-Screen"
 
 apt-get install -y plymouth plymouth-themes 2>/dev/null || true
 PLYMOUTH_DIR="/usr/share/plymouth/themes/snowfox"
@@ -1011,9 +1168,9 @@ plymouth-set-default-theme -R snowfox 2>/dev/null || \
 success "Boot-Screen bereit"
 
 # ============================================================
-# SCHRITT 10 — Konfiguration & Abschluss
+# SCHRITT 11 — Konfiguration & Abschluss
 # ============================================================
-step "10/10 — Konfiguration & Finishing"
+step "11/11 — Konfiguration & Finishing"
 
 CONFIG_DIR="$TARGET_HOME/.config"
 mkdir -p "$CONFIG_DIR/neofetch"
