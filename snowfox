@@ -929,94 +929,12 @@ cmd_layout() {
 # ============================================================
 # snowfox webapp
 # ============================================================
-WEBAPP_DIR="$HOME/.config/snowfox/webapps"
-WEBAPP_JSON="$HOME/.config/snowfox/webapps.json"
-WEBAPP_APPS_DIR="$HOME/.local/share/applications"
-
-_webapp_detect_browser() {
-    echo ""
-    echo -e "  ${CYAN}1${RESET}) Helium     (empfohlen — App-Modus, kein Browser-UI)"
-    echo -e "  ${CYAN}2${RESET}) Helium     (mit Addons — nutzt dein Hauptprofil)"
-    echo -e "  ${CYAN}3${RESET}) Zen Browser"
-    echo -e "  ${CYAN}4${RESET}) Chromium"
-    echo -e "  ${CYAN}5${RESET}) Brave"
-    echo -e "  ${CYAN}6${RESET}) Firefox-ESR"
-    echo ""
-    read -rp "$(echo -e ${PURPLE}${BOLD}"Browser wählen [1-6]: "${RESET})" BR
-    case "$BR" in
-        1) echo "helium:app" ;;
-        2) echo "helium:profile" ;;
-        3) echo "zen:app" ;;
-        4) echo "chromium:app" ;;
-        5) echo "brave:app" ;;
-        6) echo "firefox:ssb" ;;
-        *) echo "helium:app" ;;
-    esac
-}
-
-_webapp_build_exec() {
-    local url="$1"
-    local browser_mode="$2"
-    local name_safe="$3"
-    local browser="${browser_mode%%:*}"
-    local mode="${browser_mode##*:}"
-
-    local bin=""
-    case "$browser" in
-        helium)   bin="$HOME/Applications/helium.AppImage" ;;
-        zen)      bin="/opt/zen-browser.AppImage" ;;
-        chromium) bin="chromium" ;;
-        brave)    bin="brave-browser" ;;
-        firefox)  bin="firefox-esr" ;;
-    esac
-
-    case "$mode" in
-        app)
-            # Kein Browser-UI, kein Adressfeld — reiner App-Modus
-            echo "$bin --app=$url --class=snowfox-webapp-$name_safe"
-            ;;
-        profile)
-            # Mit eigenem Profil-Ordner aber Addons aus Hauptprofil nutzbar
-            local profile_dir="$WEBAPP_DIR/$name_safe"
-            mkdir -p "$profile_dir"
-            # Addons aus Hauptprofil verlinken
-            local main_profile=$(find "$HOME/.config/net.imput.helium" -name "Default" -type d 2>/dev/null | head -1)
-            if [[ -n "$main_profile" && -d "$main_profile/Extensions" ]]; then
-                ln -sf "$main_profile/Extensions" "$profile_dir/Extensions" 2>/dev/null || true
-            fi
-            echo "$bin --app=$url --user-data-dir=$profile_dir --class=snowfox-webapp-$name_safe"
-            ;;
-        ssb)
-            # Firefox SSB (experimentell)
-            echo "$bin --ssb=$url"
-            ;;
-    esac
-}
-
-_webapp_save() {
-    local name="$1" url="$2" browser_mode="$3" icon="$4"
-    mkdir -p "$WEBAPP_DIR"
-
-    # JSON-Eintrag hinzufügen
-    local entry="{\"name\":\"$name\",\"url\":\"$url\",\"browser\":\"$browser_mode\",\"icon\":\"$icon\"}"
-    if [[ -f "$WEBAPP_JSON" ]]; then
-        # Eintrag einfügen
-        python3 -c "
-import json, sys
-with open('$WEBAPP_JSON') as f:
-    data = json.load(f)
-data = [x for x in data if x['name'] != '$name']
-data.append($entry)
-with open('$WEBAPP_JSON', 'w') as f:
-    json.dump(data, f, indent=2)
-" 2>/dev/null || echo "[$entry]" > "$WEBAPP_JSON"
-    else
-        echo "[$entry]" > "$WEBAPP_JSON"
-    fi
-}
-
 cmd_webapp() {
-    mkdir -p "$WEBAPP_DIR" "$WEBAPP_APPS_DIR"
+    local WAPP_DIR="$HOME/.config/snowfox/webapps"
+    local WAPP_JSON="$HOME/.config/snowfox/webapps.json"
+    local WAPP_DESK="$HOME/.local/share/applications"
+    local WAPP_ICONS="$HOME/.config/snowfox/webapps/icons"
+    mkdir -p "$WAPP_DIR" "$WAPP_DESK" "$WAPP_ICONS"
 
     case "$1" in
         add)
@@ -1026,62 +944,143 @@ cmd_webapp() {
                 exit 1
             fi
 
-            local NAME="$2"
-            local URL="$3"
-            local NAME_SAFE=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+            local WA_NAME="$2"
+            local WA_URL="$3"
+            local WA_SAFE
+            WA_SAFE=$(echo "$WA_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
 
-            fox "Neue WebApp: ${BOLD}$NAME${RESET}"
-            info "  URL: $URL"
+            fox "Neue WebApp: ${BOLD}$WA_NAME${RESET}"
+            info "  URL: $WA_URL"
 
-            # Browser wählen
-            local BROWSER_MODE
-            BROWSER_MODE=$(_webapp_detect_browser)
-            local EXEC_CMD
-            EXEC_CMD=$(_webapp_build_exec "$URL" "$BROWSER_MODE" "$NAME_SAFE")
+            # ── Favicon herunterladen ─────────────────────────
+            local WA_ICON="web-browser"
+            local WA_ICON_PATH="$WAPP_ICONS/${WA_SAFE}.png"
+            local WA_DOMAIN
+            WA_DOMAIN=$(echo "$WA_URL" | sed 's|https\?://||' | cut -d'/' -f1)
 
-            # Icon-URL optional
+            info "  Lade Favicon von $WA_DOMAIN..."
+            local FAVICON_URLS=(
+                "https://www.google.com/s2/favicons?domain=${WA_DOMAIN}&sz=128"
+                "https://${WA_DOMAIN}/favicon.ico"
+                "https://${WA_DOMAIN}/favicon.png"
+            )
+            for FURL in "${FAVICON_URLS[@]}"; do
+                if curl -sfL --max-time 5 "$FURL" -o "$WA_ICON_PATH" 2>/dev/null; then
+                    # Prüfen ob es wirklich ein Bild ist
+                    if file "$WA_ICON_PATH" 2>/dev/null | grep -qiE "image|icon|PNG|GIF|JPEG"; then
+                        # Falls ICO — in PNG umwandeln
+                        if file "$WA_ICON_PATH" | grep -qi "icon\|ICO"; then
+                            convert "$WA_ICON_PATH" "$WA_ICON_PATH" 2>/dev/null || true
+                        fi
+                        WA_ICON="$WA_ICON_PATH"
+                        ok "Favicon geladen"
+                        break
+                    fi
+                fi
+            done
+            [[ "$WA_ICON" == "web-browser" ]] && warn "Kein Favicon gefunden — verwende Standard-Icon"
+
+            # ── Browser wählen ────────────────────────────────
             echo ""
-            read -rp "$(echo -e ${PURPLE}${BOLD}"Icon-Name oder Pfad (leer = web-browser): "${RESET})" ICON
-            [[ -z "$ICON" ]] && ICON="web-browser"
+            echo -e "  ${CYAN}1${RESET}) Helium     (App-Modus — kein Browser-UI, empfohlen)"
+            echo -e "  ${CYAN}2${RESET}) Helium     (mit Addons — nutzt Hauptprofil)"
+            echo -e "  ${CYAN}3${RESET}) Zen Browser"
+            echo -e "  ${CYAN}4${RESET}) Chromium"
+            echo -e "  ${CYAN}5${RESET}) Brave"
+            echo -e "  ${CYAN}6${RESET}) Firefox-ESR"
+            echo ""
+            read -rp "$(echo -e ${PURPLE}${BOLD}"Browser wählen [1-6]: "${RESET})" WA_BR
 
-            # Desktop-Eintrag erstellen
-            cat > "$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop" << DEOF
+            local WA_BIN WA_EXEC
+            case "$WA_BR" in
+                1)
+                    WA_BIN="$HOME/Applications/helium.AppImage"
+                    WA_EXEC="$WA_BIN --app=$WA_URL --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+                2)
+                    WA_BIN="$HOME/Applications/helium.AppImage"
+                    local WA_PROF="$WAPP_DIR/$WA_SAFE/profile"
+                    mkdir -p "$WA_PROF"
+                    # Addons aus Hauptprofil verlinken
+                    local WA_MAIN
+                    WA_MAIN=$(find "$HOME/.config/net.imput.helium" -maxdepth 2 -name "Extensions" -type d 2>/dev/null | head -1)
+                    [[ -n "$WA_MAIN" ]] && ln -sf "$WA_MAIN" "$WA_PROF/Extensions" 2>/dev/null || true
+                    WA_EXEC="$WA_BIN --app=$WA_URL --user-data-dir=$WA_PROF --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+                3)
+                    WA_BIN="/opt/zen-browser.AppImage"
+                    WA_EXEC="$WA_BIN --app=$WA_URL --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+                4)
+                    WA_BIN="chromium"
+                    WA_EXEC="$WA_BIN --app=$WA_URL --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+                5)
+                    WA_BIN="brave-browser"
+                    WA_EXEC="$WA_BIN --app=$WA_URL --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+                6)
+                    WA_BIN="firefox-esr"
+                    WA_EXEC="$WA_BIN --ssb=$WA_URL"
+                    ;;
+                *)
+                    WA_BIN="$HOME/Applications/helium.AppImage"
+                    WA_EXEC="$WA_BIN --app=$WA_URL --class=snowfox-webapp-$WA_SAFE"
+                    ;;
+            esac
+
+            # ── Desktop-Eintrag erstellen ─────────────────────
+            cat > "$WAPP_DESK/snowfox-webapp-${WA_SAFE}.desktop" << DEOF
 [Desktop Entry]
-Name=$NAME
-Comment=SnowFox WebApp
-Exec=$EXEC_CMD
-Icon=$ICON
+Name=$WA_NAME
+Comment=SnowFox WebApp — $WA_URL
+Exec=$WA_EXEC
+Icon=$WA_ICON
 Type=Application
 Categories=Network;WebApp;
 StartupNotify=true
-StartupWMClass=snowfox-webapp-$NAME_SAFE
+StartupWMClass=snowfox-webapp-$WA_SAFE
 DEOF
 
-            # In JSON speichern
-            _webapp_save "$NAME" "$URL" "$BROWSER_MODE" "$ICON"
+            # ── JSON speichern ────────────────────────────────
+            python3 -c "
+import json, os
+path = '$WAPP_JSON'
+data = []
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except:
+        data = []
+data = [x for x in data if x.get('name') != '$WA_NAME']
+data.append({'name':'$WA_NAME','url':'$WA_URL','safe':'$WA_SAFE','icon':'$WA_ICON'})
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null
 
-            update-desktop-database "$WEBAPP_APPS_DIR" 2>/dev/null || true
-            ok "WebApp '${BOLD}$NAME${RESET}' erstellt"
-            info "  Starten: snowfox webapp open $NAME_SAFE"
-            info "  In Rofi: '$NAME' suchen"
+            update-desktop-database "$WAPP_DESK" 2>/dev/null || true
+            ok "WebApp '${BOLD}$WA_NAME${RESET}' erstellt"
+            info "  Starten:  snowfox webapp open $WA_SAFE"
+            info "  In Rofi:  '$WA_NAME' suchen"
             ;;
 
         list)
             divider
             echo -e "${PURPLE}${BOLD}  SnowFoxOS — WebApps${RESET}"
             divider
-            if [[ ! -f "$WEBAPP_JSON" ]]; then
+            if [[ ! -f "$WAPP_JSON" ]]; then
                 warn "Keine WebApps vorhanden."
                 info "  Erstellen: snowfox webapp add <name> <url>"
                 return
             fi
             python3 -c "
 import json
-with open('$WEBAPP_JSON') as f:
+with open('$WAPP_JSON') as f:
     data = json.load(f)
-for i, app in enumerate(data, 1):
-    print(f\"  {i}) {app['name']} → {app['url']} [{app['browser']}]\")
-" 2>/dev/null || cat "$WEBAPP_JSON"
+for i, a in enumerate(data, 1):
+    print(f\"  {i}) {a['name']}  →  {a['url']}\")
+" 2>/dev/null
             echo ""
             divider
             ;;
@@ -1091,16 +1090,17 @@ for i, app in enumerate(data, 1):
                 err "Verwendung: snowfox webapp open <name>"
                 exit 1
             fi
-            local NAME_SAFE=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
-            local DESKTOP="$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop"
-            if [[ ! -f "$DESKTOP" ]]; then
-                err "WebApp '$2' nicht gefunden."
+            local WA_SAFE2
+            WA_SAFE2=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+            local WA_DESK="$WAPP_DESK/snowfox-webapp-${WA_SAFE2}.desktop"
+            if [[ ! -f "$WA_DESK" ]]; then
+                err "WebApp '$2' nicht gefunden. Liste: snowfox webapp list"
                 exit 1
             fi
-            local EXEC
-            EXEC=$(grep "^Exec=" "$DESKTOP" | cut -d= -f2-)
+            local WA_EXEC2
+            WA_EXEC2=$(grep "^Exec=" "$WA_DESK" | cut -d= -f2-)
             fox "Öffne ${BOLD}$2${RESET}..."
-            eval "$EXEC" &
+            eval "$WA_EXEC2" &
             ;;
 
         remove)
@@ -1108,24 +1108,22 @@ for i, app in enumerate(data, 1):
                 err "Verwendung: snowfox webapp remove <name>"
                 exit 1
             fi
-            local NAME_SAFE=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
-
-            rm -f "$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop"
-            rm -rf "$WEBAPP_DIR/$NAME_SAFE"
-
-            # Aus JSON entfernen
-            if [[ -f "$WEBAPP_JSON" ]]; then
-                python3 -c "
-import json
-with open('$WEBAPP_JSON') as f:
+            local WA_SAFE3
+            WA_SAFE3=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+            rm -f "$WAPP_DESK/snowfox-webapp-${WA_SAFE3}.desktop"
+            rm -rf "$WAPP_DIR/$WA_SAFE3"
+            rm -f "$WAPP_ICONS/${WA_SAFE3}.png"
+            python3 -c "
+import json, os
+path = '$WAPP_JSON'
+if not os.path.exists(path): exit()
+with open(path) as f:
     data = json.load(f)
-data = [x for x in data if x['name'].lower().replace(' ','-') != '$NAME_SAFE']
-with open('$WEBAPP_JSON', 'w') as f:
+data = [x for x in data if x.get('safe') != '$WA_SAFE3']
+with open(path, 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null
-            fi
-
-            update-desktop-database "$WEBAPP_APPS_DIR" 2>/dev/null || true
+            update-desktop-database "$WAPP_DESK" 2>/dev/null || true
             ok "WebApp '$2' entfernt."
             ;;
 
