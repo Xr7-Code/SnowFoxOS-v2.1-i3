@@ -634,6 +634,7 @@ cmd_help() {
     echo -e "  ${CYAN}${BOLD}snowfox pass [add|get|list|remove]${RESET} — Passwort-Manager"
     echo -e "  ${CYAN}${BOLD}snowfox tip${RESET}                 — Sicherheitstipp"
     echo -e "  ${CYAN}${BOLD}snowfox layout [tiling|floating]${RESET} — Fenstermodus wechseln"
+    echo -e "  ${CYAN}${BOLD}snowfox webapp [add|list|open|remove]${RESET} — WebApps verwalten"
     echo -e "  ${CYAN}${BOLD}snowfox network${RESET}             — Netzwerk-Manager"
     echo -e "  ${CYAN}${BOLD}snowfox ai${RESET}                  — Offline-KI"
     echo -e "  ${CYAN}${BOLD}snowfox help${RESET}                — diese Hilfe"
@@ -926,6 +927,219 @@ cmd_layout() {
 }
 
 # ============================================================
+# snowfox webapp
+# ============================================================
+WEBAPP_DIR="$HOME/.config/snowfox/webapps"
+WEBAPP_JSON="$HOME/.config/snowfox/webapps.json"
+WEBAPP_APPS_DIR="$HOME/.local/share/applications"
+
+_webapp_detect_browser() {
+    echo ""
+    echo -e "  ${CYAN}1${RESET}) Helium     (empfohlen — App-Modus, kein Browser-UI)"
+    echo -e "  ${CYAN}2${RESET}) Helium     (mit Addons — nutzt dein Hauptprofil)"
+    echo -e "  ${CYAN}3${RESET}) Zen Browser"
+    echo -e "  ${CYAN}4${RESET}) Chromium"
+    echo -e "  ${CYAN}5${RESET}) Brave"
+    echo -e "  ${CYAN}6${RESET}) Firefox-ESR"
+    echo ""
+    read -rp "$(echo -e ${PURPLE}${BOLD}"Browser wählen [1-6]: "${RESET})" BR
+    case "$BR" in
+        1) echo "helium:app" ;;
+        2) echo "helium:profile" ;;
+        3) echo "zen:app" ;;
+        4) echo "chromium:app" ;;
+        5) echo "brave:app" ;;
+        6) echo "firefox:ssb" ;;
+        *) echo "helium:app" ;;
+    esac
+}
+
+_webapp_build_exec() {
+    local url="$1"
+    local browser_mode="$2"
+    local name_safe="$3"
+    local browser="${browser_mode%%:*}"
+    local mode="${browser_mode##*:}"
+
+    local bin=""
+    case "$browser" in
+        helium)   bin="$HOME/Applications/helium.AppImage" ;;
+        zen)      bin="/opt/zen-browser.AppImage" ;;
+        chromium) bin="chromium" ;;
+        brave)    bin="brave-browser" ;;
+        firefox)  bin="firefox-esr" ;;
+    esac
+
+    case "$mode" in
+        app)
+            # Kein Browser-UI, kein Adressfeld — reiner App-Modus
+            echo "$bin --app=$url --class=snowfox-webapp-$name_safe"
+            ;;
+        profile)
+            # Mit eigenem Profil-Ordner aber Addons aus Hauptprofil nutzbar
+            local profile_dir="$WEBAPP_DIR/$name_safe"
+            mkdir -p "$profile_dir"
+            # Addons aus Hauptprofil verlinken
+            local main_profile=$(find "$HOME/.config/net.imput.helium" -name "Default" -type d 2>/dev/null | head -1)
+            if [[ -n "$main_profile" && -d "$main_profile/Extensions" ]]; then
+                ln -sf "$main_profile/Extensions" "$profile_dir/Extensions" 2>/dev/null || true
+            fi
+            echo "$bin --app=$url --user-data-dir=$profile_dir --class=snowfox-webapp-$name_safe"
+            ;;
+        ssb)
+            # Firefox SSB (experimentell)
+            echo "$bin --ssb=$url"
+            ;;
+    esac
+}
+
+_webapp_save() {
+    local name="$1" url="$2" browser_mode="$3" icon="$4"
+    mkdir -p "$WEBAPP_DIR"
+
+    # JSON-Eintrag hinzufügen
+    local entry="{\"name\":\"$name\",\"url\":\"$url\",\"browser\":\"$browser_mode\",\"icon\":\"$icon\"}"
+    if [[ -f "$WEBAPP_JSON" ]]; then
+        # Eintrag einfügen
+        python3 -c "
+import json, sys
+with open('$WEBAPP_JSON') as f:
+    data = json.load(f)
+data = [x for x in data if x['name'] != '$name']
+data.append($entry)
+with open('$WEBAPP_JSON', 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null || echo "[$entry]" > "$WEBAPP_JSON"
+    else
+        echo "[$entry]" > "$WEBAPP_JSON"
+    fi
+}
+
+cmd_webapp() {
+    mkdir -p "$WEBAPP_DIR" "$WEBAPP_APPS_DIR"
+
+    case "$1" in
+        add)
+            if [[ -z "$2" || -z "$3" ]]; then
+                err "Verwendung: snowfox webapp add <name> <url>"
+                err "Beispiel:   snowfox webapp add ChatGPT https://chatgpt.com"
+                exit 1
+            fi
+
+            local NAME="$2"
+            local URL="$3"
+            local NAME_SAFE=$(echo "$NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+
+            fox "Neue WebApp: ${BOLD}$NAME${RESET}"
+            info "  URL: $URL"
+
+            # Browser wählen
+            local BROWSER_MODE
+            BROWSER_MODE=$(_webapp_detect_browser)
+            local EXEC_CMD
+            EXEC_CMD=$(_webapp_build_exec "$URL" "$BROWSER_MODE" "$NAME_SAFE")
+
+            # Icon-URL optional
+            echo ""
+            read -rp "$(echo -e ${PURPLE}${BOLD}"Icon-Name oder Pfad (leer = web-browser): "${RESET})" ICON
+            [[ -z "$ICON" ]] && ICON="web-browser"
+
+            # Desktop-Eintrag erstellen
+            cat > "$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop" << DEOF
+[Desktop Entry]
+Name=$NAME
+Comment=SnowFox WebApp
+Exec=$EXEC_CMD
+Icon=$ICON
+Type=Application
+Categories=Network;WebApp;
+StartupNotify=true
+StartupWMClass=snowfox-webapp-$NAME_SAFE
+DEOF
+
+            # In JSON speichern
+            _webapp_save "$NAME" "$URL" "$BROWSER_MODE" "$ICON"
+
+            update-desktop-database "$WEBAPP_APPS_DIR" 2>/dev/null || true
+            ok "WebApp '${BOLD}$NAME${RESET}' erstellt"
+            info "  Starten: snowfox webapp open $NAME_SAFE"
+            info "  In Rofi: '$NAME' suchen"
+            ;;
+
+        list)
+            divider
+            echo -e "${PURPLE}${BOLD}  SnowFoxOS — WebApps${RESET}"
+            divider
+            if [[ ! -f "$WEBAPP_JSON" ]]; then
+                warn "Keine WebApps vorhanden."
+                info "  Erstellen: snowfox webapp add <name> <url>"
+                return
+            fi
+            python3 -c "
+import json
+with open('$WEBAPP_JSON') as f:
+    data = json.load(f)
+for i, app in enumerate(data, 1):
+    print(f\"  {i}) {app['name']} → {app['url']} [{app['browser']}]\")
+" 2>/dev/null || cat "$WEBAPP_JSON"
+            echo ""
+            divider
+            ;;
+
+        open)
+            if [[ -z "$2" ]]; then
+                err "Verwendung: snowfox webapp open <name>"
+                exit 1
+            fi
+            local NAME_SAFE=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+            local DESKTOP="$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop"
+            if [[ ! -f "$DESKTOP" ]]; then
+                err "WebApp '$2' nicht gefunden."
+                exit 1
+            fi
+            local EXEC
+            EXEC=$(grep "^Exec=" "$DESKTOP" | cut -d= -f2-)
+            fox "Öffne ${BOLD}$2${RESET}..."
+            eval "$EXEC" &
+            ;;
+
+        remove)
+            if [[ -z "$2" ]]; then
+                err "Verwendung: snowfox webapp remove <name>"
+                exit 1
+            fi
+            local NAME_SAFE=$(echo "$2" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd '[:alnum:]-')
+
+            rm -f "$WEBAPP_APPS_DIR/snowfox-webapp-$NAME_SAFE.desktop"
+            rm -rf "$WEBAPP_DIR/$NAME_SAFE"
+
+            # Aus JSON entfernen
+            if [[ -f "$WEBAPP_JSON" ]]; then
+                python3 -c "
+import json
+with open('$WEBAPP_JSON') as f:
+    data = json.load(f)
+data = [x for x in data if x['name'].lower().replace(' ','-') != '$NAME_SAFE']
+with open('$WEBAPP_JSON', 'w') as f:
+    json.dump(data, f, indent=2)
+" 2>/dev/null
+            fi
+
+            update-desktop-database "$WEBAPP_APPS_DIR" 2>/dev/null || true
+            ok "WebApp '$2' entfernt."
+            ;;
+
+        *)
+            echo -e "Verwendung:"
+            echo -e "  ${CYAN}snowfox webapp add <name> <url>${RESET}   — neue WebApp erstellen"
+            echo -e "  ${CYAN}snowfox webapp list${RESET}               — alle WebApps anzeigen"
+            echo -e "  ${CYAN}snowfox webapp open <name>${RESET}        — WebApp starten"
+            echo -e "  ${CYAN}snowfox webapp remove <name>${RESET}      — WebApp entfernen"
+            ;;
+    esac
+}
+
+# ============================================================
 # Dispatcher
 # ============================================================
 case "$1" in
@@ -944,6 +1158,7 @@ case "$1" in
     profile)   cmd_profile "$2" ;;
     autostart) cmd_start "$2" "$3" ;;
     layout)    cmd_layout "$2" ;;
+    webapp)    cmd_webapp "$2" "$3" "$4" ;;
     network)   exec ~/.config/snowfox-network.sh ;;
     help|"")   cmd_help ;;
     *)
