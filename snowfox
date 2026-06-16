@@ -1121,8 +1121,7 @@ with open(path) as f:
     data = json.load(f)
 data = [x for x in data if x.get('safe') != '$WA_SAFE3']
 with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-" 2>/dev/null
+    json.dump(data, f, indent=2)" 2>/dev/null # <-- HIER das " direkt anfügen!
             update-desktop-database "$WAPP_DESK" 2>/dev/null || true
             ok "WebApp '$2' entfernt."
             ;;
@@ -1130,8 +1129,8 @@ with open(path, 'w') as f:
         *)
             echo -e "Verwendung:"
             echo -e "  ${CYAN}snowfox webapp add <name> <url>${RESET}   — neue WebApp erstellen"
-            echo -e "  ${CYAN}snowfox webapp list${RESET}               — alle WebApps anzeigen"
-            echo -e "  ${CYAN}snowfox webapp open <name>${RESET}        — WebApp starten"
+            echo -e "  ${CYAN}snowfox webapp list${RESET}                — alle WebApps anzeigen"
+            echo -e "  ${CYAN}snowfox webapp open <name>${RESET}         — WebApp starten"
             echo -e "  ${CYAN}snowfox webapp remove <name>${RESET}      — WebApp entfernen"
             ;;
     esac
