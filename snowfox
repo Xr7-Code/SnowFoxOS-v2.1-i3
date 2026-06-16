@@ -1121,7 +1121,8 @@ with open(path) as f:
     data = json.load(f)
 data = [x for x in data if x.get('safe') != '$WA_SAFE3']
 with open(path, 'w') as f:
-    json.dump(data, f, indent=2)" 2>/dev/null # <-- HIER das " direkt anfügen!
+    json.dump(data, f, indent=2)
+" 2>/dev/null
             update-desktop-database "$WAPP_DESK" 2>/dev/null || true
             ok "WebApp '$2' entfernt."
             ;;
