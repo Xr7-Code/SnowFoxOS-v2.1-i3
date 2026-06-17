@@ -172,25 +172,31 @@ elif [[ "$INSTALL_MODE" == "3" ]]; then
     mount --bind /proc /mnt/target/proc
     mount --bind /sys /mnt/target/sys
 
-    chroot /mnt/target /bin/bash << EOF
+    # WICHTIG: Variablen in die Chroot-Umgebung exportieren, damit sie im EOF-Block lesbar sind!
+    export TARGET_USER USER_PASS ROOT_PASS EFI_PARTITION TARGET_DISK_GRUB
+
+    chroot /mnt/target /bin/bash << 'EOF'
 useradd -m -s /bin/bash "$TARGET_USER"
 echo "$TARGET_USER:$USER_PASS" | chpasswd
 echo "root:$ROOT_PASS" | chpasswd
 usermod -aG sudo "$TARGET_USER"
 
-if [[ -n "$EFI_PARTITION" ]]; then
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=SnowFoxOS --recheck "$TARGET_DISK_GRUB" || true
+# Da Variablen exportiert wurden, klappt die Abfrage hier drin jetzt fehlerfrei
+if [ -n "$EFI_PARTITION" ]; then
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=SnowFoxOS --recheck || true
 else
     grub-install --target=i386-pc "$TARGET_DISK_GRUB" || true
 fi
 update-grub
 EOF
-    success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
 
-    # Set TARGET_USER and TARGET_HOME for the rest of the script
-    TARGET_HOME="/mnt/target/home/$TARGET_USER"
+    success "Basis-Installation abgeschlossen. Das Skript fährt nun mit der Konfiguration fort."
 fi
 
+# =====================================================================
+# NACH DEM IF-BLOCK: Gilt jetzt für ALLE Modi (1, 2 und 3)
+# =====================================================================
+TARGET_HOME="/mnt/target/home/$TARGET_USER"
 # ── Benutzer ermitteln ───────────────────────────────────────
 if [[ "$INSTALL_MODE" == "1" ]]; then
     TARGET_USER="${SUDO_USER:-$(logname 2>/dev/null || echo '')}"
