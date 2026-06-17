@@ -1137,12 +1137,86 @@ with open(path, 'w') as f:
     esac
 }
 
+
+# =================================*********=================================
+# SCHRITT 3: System komplett zurücksetzen (Werkseinstellung / Neuinstallation)
+# =================================*********=================================
+function_reset_system() {
+    clear
+    echo -e "\e[31m######################################################################\e[0m"
+    echo -e "\e[31m   WARNUNG: DIESE AKTION LÖSCHT ALLE DEINE PERSÖNLICHEN DATEIEN!      \e[0m"
+    echo -e "\e[31m######################################################################\e[0m"
+    echo ""
+    echo "Das System wird komplett auf die Debian-Basis zurückgesetzt."
+    echo "- Alle Dokumente, Bilder, Downloads und persönliche Daten werden GELÖSCHT."
+    echo "- Alle installierten Zusatzpakete werden entfernt."
+    echo "- Die SnowFoxOS-Konfigurationen werden in den Werkszustand versetzt."
+    echo ""
+    echo -e "\e[33mBist du dir absolut sicher? Dieser Vorgang kann NICHT rückgängig gemacht werden!\e[0m"
+    echo ""
+    
+    # Sicherheitsabfrage
+    read -p "Bitte tippe 'JA' in Großbuchstaben ein, um fortzufahren: " confirm
+    
+    if [ "$confirm" = "JA" ]; then
+        echo ""
+        echo -e "\e[32m[+]\e[0m Reset-Vorgang gestartet..."
+        sleep 2
+
+        # 1. Entferne alle dotfiles und persönlichen Ordner im Home-Verzeichnis (außer das Skript selbst falls nötig)
+        echo -e "\e[34m[*]\e[0m Lösche persönliche Daten und Konfigurationen aus $HOME..."
+        # Löscht versteckte Configs und normale Verzeichnisse, behält aber die Umgebung temporär aktiv
+        find "$HOME" -mindepth 1 -maxdepth 1 ! -name ".bash_history" -exec rm -rf {} + 2>/dev/null
+
+        # 2. Erstelle die Standard-Debian-Verzeichnisse neu, damit das System stabil bleibt
+        echo -e "\e[34m[*]\e[0m Erstelle saubere Standard-Ordnerstruktur..."
+        mkdir -p "$HOME/Desktop" "$HOME/Downloads" "$HOME/Dokumente" "$HOME/Bilder" "$HOME/Musik" "$HOME/Videos"
+
+        # 3. Paketmanager aufräumen (Zusatzpakete, die nicht zum Basis-System gehören, entfernen)
+        # Löscht ungenutzte Abhängigkeiten und leert den Cache
+        echo -e "\e[34m[*]\e[0m Bereinige System-Pakete (apt autoremove & clean)..."
+        sudo apt-get autoremove --purge -y
+        sudo apt-get clean
+
+        # 4. SnowFoxOS-Originalkonfigurationen frisch aus dem Repository klonen
+        echo -e "\e[34m[*]\e[0m Lade originale SnowFoxOS-Konfigurationen neu..."
+        REPO_URL="https://github.com/Xr7-Code/SnowFoxOS-v2.1-i3.git"
+        TMP_DIR=$(mktemp -d)
+        
+        if git clone --depth=1 "$REPO_URL" "$TMP_DIR" 2>/dev/null; then
+            # Kopiere die sauberen Configs (i3, polybar, rofi, etc.) ins frische Home-Verzeichnis
+            cp -r "$TMP_DIR"/.config "$HOME/" 2>/dev/null
+            cp -r "$TMP_DIR"/wallpapers "$HOME/" 2>/dev/null 2>/dev/null
+            # Falls das Haupt-Skript wieder im Home-Verzeichnis liegen soll:
+            cp "$TMP_DIR"/snowfox "$HOME/" 2>/dev/null
+            chmod +x "$HOME/snowfox"
+            rm -rf "$TMP_DIR"
+            echo -e "\e[32m[+]\e[0m Werks-Konfigurationen erfolgreich wiederhergestellt."
+        else
+            echo -e "\e[31m[!]\e[0m Fehler: Konnte Repository für den Reset nicht klonen. Internetverbindung prüfen.\e[0m"
+        fi
+
+        echo ""
+        echo -e "\e[32m######################################################################\e[0m"
+        echo -e "\e[32m   RESET ABGESCHLOSSEN! Das System ist im Auslieferungszustand.      \e[0m"
+        echo -e "\e[32m   Das System wird in 5 Sekunden neu gestartet...                    \e[0m"
+        echo -e "\e[32m######################################################################\e[0m"
+        sleep 5
+        sudo reboot
+    else
+        echo ""
+        echo -e "\e[31m[-] Zurücksetzen abgebrochen. Es wurden keine Änderungen vorgenommen.\e[0m"
+        exit 1
+    fi
+}
+
 # ============================================================
 # Dispatcher
 # ============================================================
 case "$1" in
     status)    cmd_status ;;
     update)    cmd_update ;;
+    reset)     function_reset_system ;;
     gpu)       cmd_gpu ;;
     audit)     cmd_audit ;;
     airmode)   cmd_airmode "$2" ;;
