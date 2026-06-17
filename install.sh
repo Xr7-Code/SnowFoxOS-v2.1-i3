@@ -64,14 +64,15 @@ install_themes() {
         # SVG → PNG für GTK2
         info "Konvertiere Icons für GTK2 (SVG → PNG)..."
         if command -v rsvg-convert &>/dev/null; then
+            shopt -s nullglob # Verhindert Fehler bei leeren Verzeichnissen
             for size in 16 22 24 32 48; do
                 for cat in apps places mimetypes devices actions status; do
-                    for svg in /usr/share/icons/Tela-purple-dark/${size}/${cat}/*.svg 2>/dev/null; do
-                        [[ -f "$svg" ]] || continue
+                    for svg in /usr/share/icons/Tela-purple-dark/${size}/${cat}/*.svg; do
                         rsvg-convert -w "$size" -h "$size" "$svg" -o "${svg%.svg}.png" 2>/dev/null || true
                     done
                 done
             done
+            shopt -u nullglob # Wieder deaktivieren
             gtk-update-icon-cache -f /usr/share/icons/Tela-purple-dark/ 2>/dev/null || true
             success "Tela-purple-dark Icons installiert + GTK2-kompatibel"
         else
