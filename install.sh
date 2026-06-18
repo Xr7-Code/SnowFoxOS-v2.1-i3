@@ -209,11 +209,8 @@ then
     mount --bind /proc /mnt/target/proc
     mount --bind /sys /mnt/target/sys
     
-    # FIX: Exportiere die Variablen für die Chroot-Umgebung
     export TARGET_USER USER_PASS ROOT_PASS TARGET_DISK
     
-    # FIX: 'EOF' maskiert, damit die Variablen sauber im chroot aufgelöst werden
-    chroot /mnt/target /bin/bash << 'EOF'
     # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
     chroot /mnt/target /bin/bash << EOF
 useradd -m -s /bin/bash "${TARGET_USER}"
@@ -256,11 +253,8 @@ then
     mount --bind /proc /mnt/target/proc
     mount --bind /sys /mnt/target/sys
     
-    # FIX: Exportiere alle notwendigen Variablen
     export TARGET_USER USER_PASS ROOT_PASS EFI_PARTITION TARGET_DISK_GRUB
     
-    # FIX: 'EOF' maskiert, um leere Variablen im chroot zu verhindern
-    chroot /mnt/target /bin/bash << 'EOF'
     # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
     chroot /mnt/target /bin/bash << EOF
 useradd -m -s /bin/bash "${TARGET_USER}"
@@ -458,7 +452,7 @@ apt-get install -y \
     libappindicator3-1 libayatana-appindicator3-1 feh \
     xdg-desktop-portal xdg-desktop-portal-gtk libdbusmenu-gtk3-4 \
     redshift scrot brightnessctl playerctl \
-    network-manager bluez \
+    network-manager network-manager-gnome bluez \
     fonts-inter fonts-noto fonts-noto-color-emoji fonts-font-awesome fonts-jetbrains-mono \
     papirus-icon-theme \
     gtk2-engines gtk2-engines-murrine gtk2-engines-pixbuf \
