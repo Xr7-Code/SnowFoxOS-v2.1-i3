@@ -79,7 +79,7 @@ EOF
     # Theme ermitteln
     local GTK_THEME="Catppuccin-Mocha-Standard-Lavender"
     # Fallback, falls Catppuccin-Installation fehlschlägt
-    [[ ! -d "/usr/share/themes/${GTK_THEME}" ]] && GTK_THEME="Adwaita-dark"
+    [[ ! -d "/usr/share/themes/${GTK_THEME}" && ! -d "/usr/share/themes/Catppuccin-Mocha-Standard-Lavender" ]] && GTK_THEME="Adwaita-dark"
     local ICON_THEME="Papirus-Dark"
     local CURSOR_THEME="Adwaita"
 
@@ -1070,8 +1070,10 @@ application/zip=file-roller.desktop
 MEOF
 
 # Berechtigungen
-chown -R "$TARGET_USER:$TARGET_USER" "$CONFIG_DIR" "$TARGET_HOME/Pictures/wallpapers" \
-    "$TARGET_HOME/.bash_profile" 2>/dev/null || true
+mkdir -p "$TARGET_HOME/.local/share"
+chown -R "$TARGET_USER:$TARGET_USER" \
+    "$CONFIG_DIR" "$TARGET_HOME/Pictures" "$TARGET_HOME/.local" \
+    "$TARGET_HOME/.bash_profile" "$TARGET_HOME/.bashrc" 2>/dev/null || true
 [[ -f "$TARGET_HOME/.gtkrc-2.0" ]] && chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.gtkrc-2.0"
 [[ -f "$TARGET_HOME/.fehbg" ]] && chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.fehbg"
 
