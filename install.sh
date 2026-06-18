@@ -41,6 +41,10 @@ install_themes() {
     local TARGET_HOME="$1"
     local TARGET_USER="$2"
 
+    # Build-Abhängigkeiten für Catppuccin Theme
+    info "Installiere Build-Abhängigkeiten für GTK-Theme..."
+    apt-get install -y sassc libglib2.0-dev
+
     # --- GTK Theme: Catppuccin ---
     info "Installiere Catppuccin GTK Theme (Mocha, Lavender accent)..."
     git clone --depth=1 https://github.com/catppuccin/gtk.git /tmp/catppuccin-gtk 2>/dev/null
@@ -57,9 +61,9 @@ install_themes() {
     # --- Papirus Icon Theme ---
     info "Installiere und konfiguriere Papirus Icon Theme (Violet als Akzent)..."
     apt-get install -y papirus-icon-theme
-    wget -qO- https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-folders/master/papirus-folders | tee /usr/local/bin/papirus-folders > /dev/null
+    wget -qO- https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-folders/master/papirus-folders | sudo tee /usr/local/bin/papirus-folders > /dev/null
     chmod +x /usr/local/bin/papirus-folders
-    /usr/local/bin/papirus-folders -c violet -t Papirus-Dark
+    /usr/local/bin/papirus-folders -C violet -t Papirus-Dark
     success "Papirus-Dark Icons installiert und auf Violet gesetzt"
 
     # --- Cursor Theme: Adwaita (Gnome Default) ---
@@ -149,6 +153,10 @@ QEOF
         "$TARGET_HOME/.config/xsettingsd" \
         "$TARGET_HOME/.config/qt5ct" \
         "$TARGET_HOME/.config/qt6ct" 2>/dev/null || true
+
+    # .xinitrc mit dem korrekten Theme aktualisieren
+    sed -i "s|GTK_THEME_PLACEHOLDER|${GTK_THEME}|" "$TARGET_HOME/.xinitrc" 2>/dev/null || true
+    chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.xinitrc" 2>/dev/null || true
 
     success "Theme-System vollständig konfiguriert: $GTK_THEME + $ICON_THEME + $CURSOR_THEME"
 }
@@ -305,7 +313,7 @@ apt-get update -qq
 dpkg --configure -a 2>/dev/null || true
 apt-get -f install -y 2>/dev/null || true
 wait_apt
-apt-get upgrade -y
+apt-get upgrade -y sassc libglib2.0-dev # sassc und libglib2.0-dev für Catppuccin
 apt-get install -y \
     curl wget git unzip build-essential ca-certificates aria2 fzf lz4 gnupg \
     pciutils usbutils htop btop neofetch irqbalance bash-completion \
@@ -504,6 +512,7 @@ grep -q "startx" "$BASH_PROFILE" 2>/dev/null || {
 cat > "$TARGET_HOME/.xinitrc" << 'EOF'
 #!/bin/sh
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+export GTK_THEME=GTK_THEME_PLACEHOLDER # Platzhalter für install_themes
 export GTK2_RC_FILES="$HOME/.gtkrc-2.0"
 export QT_QPA_PLATFORMTHEME=qt5ct
 export _JAVA_AWT_WM_NONREPARENTING=1
