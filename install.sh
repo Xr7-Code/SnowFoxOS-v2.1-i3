@@ -517,6 +517,7 @@ export GTK2_RC_FILES="$HOME/.gtkrc-2.0"
 export QT_QPA_PLATFORMTHEME=qt5ct
 export _JAVA_AWT_WM_NONREPARENTING=1
 export XDG_CURRENT_DESKTOP=XFCE
+export XAUTHORITY="$HOME/.Xauthority"
 
 xsettingsd &
 
@@ -817,6 +818,7 @@ cat > /etc/NetworkManager/NetworkManager.conf << 'EOF'
 [main]
 plugins=ifupdown,keyfile
 dns=systemd-resolved
+rc-manager=unmanaged
 [ifupdown]
 managed=true
 EOF
