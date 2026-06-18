@@ -25,8 +25,6 @@ active_connection() {
 
 # ── Netzwerkliste aufbauen ────────────────────────────────────
 
-# ── Netzwerkliste aufbauen ────────────────────────────────────
-
 build_network_list() {
     # Netzwerke neu scannen (asynchron)
     nmcli device wifi rescan &>/dev/null &

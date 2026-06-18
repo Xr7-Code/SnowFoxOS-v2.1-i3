@@ -371,6 +371,29 @@ cmd_download() {
 }
 
 # ============================================================
+# snowfox fetch
+# ============================================================
+cmd_fetch() {
+    if ! command -v aria2c &>/dev/null; then
+        err "aria2c nicht gefunden. Installieren: sudo apt install aria2"
+        exit 1
+    fi
+
+    if [[ -z "$1" ]]; then
+        err "Verwendung: snowfox fetch <URL>"
+        exit 1
+    fi
+
+    fox "Starte Highspeed Download von: ${BOLD}$1${RESET}"
+    aria2c -x16 -s16 -k1M "$1"
+    if [[ $? -eq 0 ]]; then
+        ok "Download abgeschlossen."
+    else
+        err "Download fehlgeschlagen."
+    fi
+}
+
+# ============================================================
 # snowfox stream
 # ============================================================
 cmd_stream() {
@@ -538,7 +561,7 @@ SNOWFOX_SYSTEM_PROMPT='Du bist die eingebaute KI von SnowFoxOS — einem minimal
 
 Du kennst dieses System in- und auswendig:
 - Desktop: i3 (X11 Tiling Window Manager) + Polybar + Rofi + Dunst
-- Terminal: Kitty | Browser: Zen Browser | Audio: PipeWire | Dateimanager: Thunar
+- Terminal: Kitty | Browser: Zen Browser | Audio: PipeWire | Dateimanager: PCmanFM
 - Wichtige Shortcuts: Super+Return=Terminal, Super+Space=Rofi, Super+B=Browser, Super+E=Thunar, Super+L=Sperren, Super+Q=Schließen, Super+Shift+E=Powermenu, Print=Screenshot
 - CLI Tool: snowfox — mit Befehlen: status, update, gpu, audit, airmode, kill, download, stream, pass, tip, ai, battery, profile, autostart, network, help
 - GPU: automatische Erkennung, envycontrol für Hybrid-Systeme
@@ -628,6 +651,7 @@ cmd_help() {
     echo -e "  ${CYAN}${BOLD}snowfox audit${RESET}               — aktive Netzwerkverbindungen"
     echo -e "  ${CYAN}${BOLD}snowfox autostart [list|enable|disable]${RESET} — Autostart verwalten"
     echo -e "  ${CYAN}${BOLD}snowfox airmode [on|off|status]${RESET} — Funk komplett deaktivieren"
+    echo -e "  ${CYAN}${BOLD}snowfox fetch <URL>${RESET}         — Highspeed Download einer Datei"
     echo -e "  ${CYAN}${BOLD}snowfox kill [mic|cam|all|restore]${RESET} — Hardware deaktivieren"
     echo -e "  ${CYAN}${BOLD}snowfox download <URL>${RESET}      — Video/Audio herunterladen"
     echo -e "  ${CYAN}${BOLD}snowfox stream <Suche|URL>${RESET}  — Video/Musik streamen"
@@ -1130,11 +1154,160 @@ with open(path, 'w') as f:
         *)
             echo -e "Verwendung:"
             echo -e "  ${CYAN}snowfox webapp add <name> <url>${RESET}   — neue WebApp erstellen"
-            echo -e "  ${CYAN}snowfox webapp list${RESET}               — alle WebApps anzeigen"
-            echo -e "  ${CYAN}snowfox webapp open <name>${RESET}        — WebApp starten"
+            echo -e "  ${CYAN}snowfox webapp list${RESET}                — alle WebApps anzeigen"
+            echo -e "  ${CYAN}snowfox webapp open <name>${RESET}         — WebApp starten"
             echo -e "  ${CYAN}snowfox webapp remove <name>${RESET}      — WebApp entfernen"
             ;;
     esac
+}
+
+
+# =================================*********=================================
+# SCHRITT 3: System komplett zurücksetzen (Werkseinstellung / Neuinstallation)
+# =================================*********=================================
+function_reset_system() {
+    clear
+    echo -e "${RED}${BOLD}######################################################################${RESET}"
+    echo -e "${RED}${BOLD}   WARNUNG: DIESE AKTION LÖSCHT ALLE DEINE PERSÖNLICHEN DATEIEN!      ${RESET}"
+    echo -e "${RED}${BOLD}   UND VERSUCHT, DAS SYSTEM AUF EINEN MINIMALEN DEBIAN-ZUSTAND       ${RESET}"
+    echo -e "${RED}${BOLD}   ZURÜCKZUSETZEN. DIES IST EIN DESTRUKTIVER VORGANG!               ${RESET}"
+    echo -e "${RED}${BOLD}######################################################################${RESET}"
+    echo ""
+    echo "Dieses Skript versucht, Ihr SnowFoxOS-System auf einen Zustand zurückzusetzen,"
+    echo "der einer frischen Debian 12 Minimalinstallation ähnelt."
+    echo "- Alle Dokumente, Bilder, Downloads und persönliche Daten werden GELÖSCHT."
+    echo "- Alle SnowFoxOS-spezifischen Pakete und Konfigurationen werden entfernt."
+    echo "- Der Kernel und die GPU-Treiber werden auf Debian-Standard zurückgesetzt."
+    echo "- Eine vollständige Neuinstallation von Debian ist der EINZIGE Weg,"
+    echo "  um einen absolut makellosen Ausgangszustand zu garantieren."
+    echo ""
+    echo -e "${ORANGE}${BOLD}Bist du dir absolut sicher? Dieser Vorgang kann NICHT rückgängig gemacht werden!${RESET}"
+    echo ""
+    
+    # Sicherheitsabfrage
+    read -rp "$(echo -e ${RED}${BOLD}"Bitte tippe 'JA' in Großbuchstaben ein, um fortzufahren: "${RESET})" confirm
+    
+    if [ "$confirm" = "JA" ]; then
+        echo ""
+        ok "Reset-Vorgang gestartet..."
+        sleep 2
+
+        # 1. Home-Verzeichnis aufräumen
+        fox "Lösche persönliche Daten und Konfigurationen aus $HOME..."
+        # Sicherstellen, dass das Skript selbst nicht gelöscht wird, falls es im Home liegt
+        local SCRIPT_NAME=$(basename "$0")
+        find "$HOME" -mindepth 1 -maxdepth 1 \
+            ! -name ".bash_history" \
+            ! -name "$SCRIPT_NAME" \
+            -exec rm -rf {} + 2>/dev/null
+        ok "Home-Verzeichnis bereinigt."
+
+        fox "Erstelle saubere Standard-Ordnerstruktur..."
+        mkdir -p "$HOME/Desktop" "$HOME/Downloads" "$HOME/Dokumente" "$HOME/Bilder" "$HOME/Musik" "$HOME/Videos"
+        ok "Standard-Ordnerstruktur erstellt."
+
+        # 2. SnowFoxOS-spezifische Pakete entfernen
+        fox "Entferne SnowFoxOS-spezifische Pakete..."
+        local SNOWFOX_PACKAGES=(
+            i3 i3status i3lock polybar rofi dunst feh xdg-desktop-portal xdg-desktop-portal-gtk
+            redshift scrot brightnessctl playerctl network-manager bluez
+            fonts-inter fonts-noto fonts-noto-color-emoji fonts-font-awesome fonts-jetbrains-mono
+            papirus-icon-theme gtk2-engines gtk2-engines-murrine gtk2-engines-pixbuf
+            qt5ct qt6ct qt5-style-plugins adwaita-qt xsettingsd lxpolkit lxappearance
+            picom xss-lock xserver-xorg-input-libinput diodon cups cups-bsd cups-client printer-driver-splix
+            gparted ntfs-3g udiskie pcmanfm libfm-gtk3-bin gvfs gvfs-backends
+            pipewire pipewire-pulse pipewire-alsa wireplumber pavucontrol pulseaudio-utils
+            kitty mc mousepad ristretto file-roller mpv ffmpeg yt-dlp
+            zram-tools earlyoom ufw fail2ban apparmor apparmor-profiles apparmor-utils
+            tlp tlp-rdw plymouth plymouth-themes
+            linux-xanmod-lts-x64v3 cuda-drivers-580 envycontrol librewolf brave-browser ollama
+            # AppImages sind keine apt-Pakete, müssen manuell gelöscht werden
+        )
+        sudo apt-get purge -y "${SNOWFOX_PACKAGES[@]}" 2>/dev/null || warn "Einige Pakete konnten nicht vollständig entfernt werden."
+        sudo apt-get autoremove --purge -y
+        sudo apt-get clean
+        ok "SnowFoxOS-Pakete entfernt."
+
+        # 3. Systemkonfigurationen zurücksetzen
+        fox "Setze Systemkonfigurationen zurück..."
+        # APT sources
+        cat > /etc/apt/sources.list << 'EOF'
+deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
+EOF
+        rm -f /etc/apt/sources.list.d/xanmod-release.list
+        rm -f /etc/apt/sources.list.d/nvidia-cuda.list
+        rm -f /etc/apt/sources.list.d/librewolf.list
+        rm -f /etc/apt/sources.list.d/vscodium.list
+        rm -f /etc/apt/sources.list.d/onlyoffice.list
+        rm -f /etc/apt/preferences.d/nvidia-cuda
+        sudo apt-get update -qq
+
+        # GRUB zurücksetzen
+        if [[ -f /etc/default/grub ]]; then
+            sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' /etc/default/grub
+            sed -i 's/GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/' /etc/default/grub
+            sed -i '/GRUB_DISABLE_OS_PROBER/d' /etc/default/grub
+            echo "GRUB_DISABLE_OS_PROBER=false" >> /etc/default/grub # Standardverhalten wiederherstellen
+            sudo update-grub 2>/dev/null || true
+        fi
+
+        # Entferne SnowFoxOS-spezifische Konfigurationsdateien
+        rm -f /etc/sysctl.d/99-snowfox.conf
+        rm -f /etc/NetworkManager/conf.d/99-snowfox-privacy.conf
+        rm -f /etc/NetworkManager/conf.d/99-snowfox-wifi-powersave.conf
+        rm -f /etc/systemd/resolved.conf.d/snowfox.conf
+        rm -f /etc/modprobe.d/snowfox-blacklist.conf
+        rm -f /etc/udev/rules.d/70-usb-wlan-power.rules
+        rm -f /etc/X11/xorg.conf.d/20-nvidia-hybrid.conf
+        rm -f /etc/X11/xorg.conf.d/30-touchpad.conf
+        rm -f /etc/sudoers.d/live-user # Falls vom ISO installiert
+        
+        # Hostname, OS-Release zurücksetzen (best effort)
+        echo "debian" > /etc/hostname
+        hostname debian 2>/dev/null || true
+        rm -f /etc/os-release /etc/lsb-release # apt wird diese bei Bedarf wiederherstellen
+
+        # Dienste reaktivieren, die SnowFoxOS deaktiviert haben könnte
+        systemctl enable NetworkManager systemd-resolved 2>/dev/null || true
+        systemctl unmask NetworkManager-wait-online.service systemd-networkd-wait-online.service 2>/dev/null || true
+        systemctl start NetworkManager systemd-resolved 2>/dev/null || true
+
+        # DKMS hooks wiederherstellen (falls gesichert)
+        DKMS_HOOKS=(/etc/kernel/postinst.d/dkms /etc/kernel/prerm.d/dkms /usr/lib/kernel/install.d/50-dkms.install)
+        for hook in "${DKMS_HOOKS[@]}"; do [[ -f "${hook}.snowfox-bak" ]] && mv "${hook}.snowfox-bak" "$hook"; done
+
+        # AppImages entfernen
+        rm -f /opt/zen-browser.AppImage /opt/helium-browser.AppImage
+        rm -f "$HOME/Applications/logseq.AppImage"
+
+        # SnowFoxOS CLI und Skripte entfernen
+        rm -f /usr/local/bin/snowfox /usr/local/bin/snowfox-greeting /usr/local/bin/snowfox-powermenu
+        rm -f /usr/local/bin/papirus-folders # Von install.sh hinzugefügt
+
+        # Plymouth zurücksetzen
+        plymouth-set-default-theme -R debian-theme 2>/dev/null || true
+        update-initramfs -u 2>/dev/null || true
+
+        ok "Systemkonfigurationen zurückgesetzt."
+
+        echo ""
+        echo -e "${GREEN}${BOLD}######################################################################${RESET}"
+        echo -e "${GREEN}${BOLD}   RESET ABGESCHLOSSEN! Das System wurde auf einen Debian-Basis-     ${RESET}"
+        echo -e "${GREEN}${BOLD}   Zustand zurückgesetzt. Für eine GARANTIERTE saubere Installation, ${RESET}"
+        echo -e "${GREEN}${BOLD}   empfehlen wir eine vollständige Neuinstallation von Debian.       ${RESET}"
+        echo -e "${GREEN}${BOLD}   Das System wird in 5 Sekunden neu gestartet...                    ${RESET}"
+        echo -e "${GREEN}${BOLD}######################################################################${RESET}"
+        sleep 5
+        sudo reboot
+    else
+        err "Zurücksetzen abgebrochen. Es wurden keine Änderungen vorgenommen."
+        exit 1
+    fi
 }
 
 # ============================================================
@@ -1143,11 +1316,13 @@ with open(path, 'w') as f:
 case "$1" in
     status)    cmd_status ;;
     update)    cmd_update ;;
+    reset)     function_reset_system ;;
     gpu)       cmd_gpu ;;
     audit)     cmd_audit ;;
     airmode)   cmd_airmode "$2" ;;
     kill)      cmd_kill "$2" ;;
     download)  cmd_download "$2" ;;
+    fetch)     cmd_fetch "$2" ;;
     stream)    cmd_stream "$2" ;;
     pass)      cmd_pass "$2" "$3" ;;
     tip)       cmd_tip ;;

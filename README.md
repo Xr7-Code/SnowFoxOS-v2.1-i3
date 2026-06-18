@@ -114,6 +114,7 @@ Zum Vergleich:
 | `snowfox kill mic` | Mikrofon auf Kernel-Ebene deaktivieren |
 | `snowfox kill cam` | Webcam deaktivieren |
 | `snowfox kill all` | Mikrofon + Kamera + Funk auf einmal deaktivieren |
+| `snowfox kill restore` | Alle Hardware-Kill-Switches zurücksetzen |
 | `snowfox pass` | Lokaler verschlüsselter Passwort-Manager — keine Cloud, keine Synchronisierung |
 
 ### Media
@@ -123,6 +124,16 @@ Zum Vergleich:
 | `snowfox stream [Suche/URL]` | Video/Audio suchen oder via URL direkt in mpv streamen — kein Browser, kein Tracking |
 | `snowfox download [Suche/URL]` | Video oder Audio suchen oder via URL herunterladen |
 | `snowfox fetch <URL>` | Highspeed Download einer Datei über 16 parallele Verbindungen |
+
+### Tools & Konfiguration
+
+| Befehl | Beschreibung |
+|---|---|
+| `snowfox autostart [list|enable|disable]` | Autostart-Programme verwalten |
+| `snowfox layout [tiling|floating]` | Fenstermodus wechseln (i3) |
+| `snowfox webapp [add|list|open|remove]` | WebApps erstellen und verwalten |
+| `snowfox network` | Netzwerk-Manager (Rofi) |
+| `snowfox ai` | Lokale KI (Ollama) |
 
 ### System-Profile
 
@@ -142,6 +153,12 @@ Du könntest YouTube im Browser öffnen. Aber jedes Mal wenn du das tust, trackt
 `snowfox stream` erlaubt es dir, direkt vom Terminal aus zu suchen und das Ergebnis in mpv abzuspielen — kein JavaScript, kein Tracking, keine Empfehlungen, kein Autoplay. Nur das Medium.
 
 Deine Aufmerksamkeit gehört dir.
+
+### System Reset
+
+| Befehl | Beschreibung |
+|---|---|
+| `snowfox reset` | Setzt das System auf einen Debian-Minimalzustand zurück (löscht alle Daten!) |
 
 ---
 
@@ -195,7 +212,7 @@ Nach dem Neustart startet i3 automatisch von TTY1.
 | `Super + Return` | Terminal (Kitty) |
 | `Super + Tab` | Fenster wechseln (Switcher) |
 | `Super + Space` | App-Launcher (Rofi) |
-| `Super + E` | Dateimanager (Thunar) |
+| `Super + E` | Dateimanager (PCmanFM) |
 | `Super + N` | Netzwerk-Manager |
 | `Super + W` | Wallpaper-Selector |
 | `Super + P` | Display-Konfiguration |
@@ -226,7 +243,7 @@ Nach dem Neustart startet i3 automatisch von TTY1.
 | Audio | pipewire + wireplumber |
 | Compositor | picom (glx, with shadows) |
 | Benachrichtigungen | dunst |
-| Dateimanager | thunar |
+| Dateimanager | pcmanfm |
 | Bildschirmsperre | i3lock + xss-lock |
 | Media Player | mpv + yt-dlp |
 | Akku | tlp |

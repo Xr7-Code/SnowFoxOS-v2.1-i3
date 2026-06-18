@@ -54,33 +54,12 @@ install_themes() {
         warn "Orchis nicht verfügbar — nutze Adwaita-dark als Fallback"
     fi
 
-    info "Installiere Tela Icon Theme (lila)..."
-    git clone --depth=1 https://github.com/vinceliuice/Tela-icon-theme.git /tmp/tela 2>/dev/null
-    if [[ -d /tmp/tela ]]; then
-        cd /tmp/tela
-        ./install.sh purple 2>/dev/null || true
-        cd /
-        rm -rf /tmp/tela
-        # SVG → PNG für GTK2
-        info "Konvertiere Icons für GTK2 (SVG → PNG)..."
-        if command -v rsvg-convert &>/dev/null; then
-            shopt -s nullglob # Verhindert Fehler bei leeren Verzeichnissen
-            for size in 16 22 24 32 48; do
-                for cat in apps places mimetypes devices actions status; do
-                    for svg in /usr/share/icons/Tela-purple-dark/${size}/${cat}/*.svg; do
-                        rsvg-convert -w "$size" -h "$size" "$svg" -o "${svg%.svg}.png" 2>/dev/null || true
-                    done
-                done
-            done
-            shopt -u nullglob # Wieder deaktivieren
-            gtk-update-icon-cache -f /usr/share/icons/Tela-purple-dark/ 2>/dev/null || true
-            success "Tela-purple-dark Icons installiert + GTK2-kompatibel"
-        else
-            success "Tela-purple-dark Icons installiert"
-        fi
-    else
-        warn "Tela nicht verfügbar — nutze Papirus-Dark als Fallback"
-    fi
+    info "Installiere und konfiguriere Papirus Icon Theme (Violet)..."
+    apt-get install -y papirus-icon-theme
+    wget -qO- https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-folders/master/papirus-folders | tee /usr/local/bin/papirus-folders > /dev/null
+    chmod +x /usr/local/bin/papirus-folders
+    /usr/local/bin/papirus-folders -c violet -t Papirus-Dark
+    success "Papirus-Dark Icons installiert und auf Violet gesetzt"
 
     info "Installiere Bibata-Modern-Classic Cursor..."
     local BIBATA_VER
@@ -106,8 +85,7 @@ EOF
     # Theme ermitteln
     local GTK_THEME="Orchis-Purple-Dark"
     [[ ! -d /usr/share/themes/Orchis-Purple-Dark ]] && GTK_THEME="Adwaita-dark"
-    local ICON_THEME="Tela-purple-dark"
-    [[ ! -d /usr/share/icons/Tela-purple-dark ]] && ICON_THEME="Papirus-Dark"
+    local ICON_THEME="Papirus-Dark"
     local CURSOR_THEME="Bibata-Modern-Classic"
     [[ ! -d /usr/share/icons/Bibata-Modern-Classic ]] && CURSOR_THEME="Adwaita"
 
@@ -166,12 +144,12 @@ GEOF
     cat > "$TARGET_HOME/.config/qt5ct/qt5ct.conf" << 'QEOF'
 [Appearance]
 style=gtk2
-icon_theme=Tela-purple-dark
+icon_theme=Papirus-Dark
 QEOF
     cat > "$TARGET_HOME/.config/qt6ct/qt6ct.conf" << 'QEOF'
 [Appearance]
 style=gtk2
-icon_theme=Tela-purple-dark
+icon_theme=Papirus-Dark
 QEOF
 
     chown -R "$TARGET_USER:$TARGET_USER" \
