@@ -214,6 +214,8 @@ then
     
     # FIX: 'EOF' maskiert, damit die Variablen sauber im chroot aufgelöst werden
     chroot /mnt/target /bin/bash << 'EOF'
+    # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
+    chroot /mnt/target /bin/bash << EOF
 useradd -m -s /bin/bash "${TARGET_USER}"
 echo "${TARGET_USER}:${USER_PASS}" | chpasswd
 echo "root:${ROOT_PASS}" | chpasswd
@@ -259,6 +261,8 @@ then
     
     # FIX: 'EOF' maskiert, um leere Variablen im chroot zu verhindern
     chroot /mnt/target /bin/bash << 'EOF'
+    # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
+    chroot /mnt/target /bin/bash << EOF
 useradd -m -s /bin/bash "${TARGET_USER}"
 echo "${TARGET_USER}:${USER_PASS}" | chpasswd
 echo "root:${ROOT_PASS}" | chpasswd
