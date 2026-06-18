@@ -79,7 +79,7 @@ EOF
     # Theme ermitteln
     local GTK_THEME="Catppuccin-Mocha-Standard-Lavender"
     # Fallback, falls Catppuccin-Installation fehlschlägt
-    [[ ! -d "/usr/share/themes/${GTK_THEME}" && ! -d "/usr/share/themes/Catppuccin-Mocha-Standard-Lavender" ]] && GTK_THEME="Adwaita-dark"
+    [[ ! -d "/usr/share/themes/Catppuccin-Mocha-Standard-Lavender" ]] && GTK_THEME="Adwaita-dark"
     local ICON_THEME="Papirus-Dark"
     local CURSOR_THEME="Adwaita"
 
@@ -932,6 +932,12 @@ DISTRIB_DESCRIPTION="SnowFoxOS 2.1"
 EOF
 echo "snowfox" > /etc/hostname
 echo "SnowFoxOS 2.1" > /etc/issue
+# Hostname in /etc/hosts eintragen, um Auflösungsfehler zu vermeiden
+if ! grep -q "127.0.1.1.*snowfox" /etc/hosts; then
+    # Entferne alte 127.0.1.1 Einträge, falls vorhanden
+    sed -i '/^127\.0\.1\.1/d' /etc/hosts
+    echo "127.0.1.1       snowfox" >> /etc/hosts
+fi
 hostname snowfox 2>/dev/null || true
 
 # Themes installieren (zentrale Funktion)
@@ -1070,10 +1076,8 @@ application/zip=file-roller.desktop
 MEOF
 
 # Berechtigungen
-mkdir -p "$TARGET_HOME/.local/share"
-chown -R "$TARGET_USER:$TARGET_USER" \
-    "$CONFIG_DIR" "$TARGET_HOME/Pictures" "$TARGET_HOME/.local" \
-    "$TARGET_HOME/.bash_profile" "$TARGET_HOME/.bashrc" 2>/dev/null || true
+info "Setze finale Berechtigungen für $TARGET_HOME..."
+chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME" 2>/dev/null || true
 [[ -f "$TARGET_HOME/.gtkrc-2.0" ]] && chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.gtkrc-2.0"
 [[ -f "$TARGET_HOME/.fehbg" ]] && chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.fehbg"
 
