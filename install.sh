@@ -816,9 +816,11 @@ mkdir -p /etc/NetworkManager/conf.d
 cat > /etc/NetworkManager/NetworkManager.conf << 'EOF'
 [main]
 plugins=ifupdown,keyfile
+dns=systemd-resolved
 [ifupdown]
 managed=true
 EOF
+
 cat > /etc/NetworkManager/conf.d/99-snowfox-privacy.conf << 'EOF'
 [device]
 wifi.scan-rand-mac-address=yes
@@ -839,6 +841,9 @@ FallbackDNS=8.8.8.8
 DNSSEC=allow-downgrade
 DNSOverTLS=opportunistic
 EOF
+
+# /etc/resolv.conf auf systemd-resolved umstellen
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 
 systemctl enable systemd-resolved irqbalance 2>/dev/null || true
 for svc in avahi-daemon cups-browsed ModemManager colord blueman; do
