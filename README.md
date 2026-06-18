@@ -56,7 +56,7 @@ Dieses System ist für Menschen die ihre Hardware zurückhaben wollen. Es telefo
 - **MAC-Randomisierung** — zufällige MAC beim WLAN-Scan, kein Tracking durch Hotspots
 - **DNS-over-TLS** — via systemd-resolved mit Cloudflare + Quad9, keine DNS-Leaks
 - **GPU-Erkennung** — installiert automatisch die richtigen Treiber für AMD, NVIDIA oder Hybrid
-- **Dark Mode** — GTK3 + GTK4 Arc-Dark out of the box
+- **Dark Mode** — Catppuccin Mocha Lavender (GTK + Qt) out of the box
 
 ---
 

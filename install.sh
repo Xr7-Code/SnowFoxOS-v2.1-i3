@@ -41,53 +41,43 @@ install_themes() {
     local TARGET_HOME="$1"
     local TARGET_USER="$2"
 
-    info "Installiere Orchis Dark Theme (GTK2+GTK3)..."
-    git clone --depth=1 https://github.com/vinceliuice/Orchis-theme.git /tmp/orchis 2>/dev/null
-    if [[ -d /tmp/orchis ]]; then
-        cd /tmp/orchis
-        ./install.sh -t purple -s standard -l --tweaks dark 2>/dev/null || \
-            ./install.sh -t purple 2>/dev/null || true
-        cd /
-        rm -rf /tmp/orchis
-        success "Orchis-Purple-Dark Theme installiert"
+    # --- GTK Theme: Catppuccin ---
+    info "Installiere Catppuccin GTK Theme (Mocha, Lavender accent)..."
+    git clone --depth=1 https://github.com/catppuccin/gtk.git /tmp/catppuccin-gtk 2>/dev/null
+    if [[ -d /tmp/catppuccin-gtk ]]; then
+        cd /tmp/catppuccin-gtk || error "Konnte nicht in /tmp/catppuccin-gtk wechseln."
+        ./install.sh -t mocha -a lavender -s standard 2>/dev/null || true
+        cd / || error "Konnte nicht nach / wechseln."
+        rm -rf /tmp/catppuccin-gtk
+        success "Catppuccin-Mocha-Standard-Lavender Theme installiert"
     else
-        warn "Orchis nicht verfügbar — nutze Adwaita-dark als Fallback"
+        warn "Catppuccin GTK Theme nicht verfügbar — nutze Adwaita-dark als Fallback"
     fi
 
-    info "Installiere und konfiguriere Papirus Icon Theme (Violet)..."
+    # --- Papirus Icon Theme ---
+    info "Installiere und konfiguriere Papirus Icon Theme (Violet als Akzent)..."
     apt-get install -y papirus-icon-theme
     wget -qO- https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-folders/master/papirus-folders | tee /usr/local/bin/papirus-folders > /dev/null
     chmod +x /usr/local/bin/papirus-folders
     /usr/local/bin/papirus-folders -c violet -t Papirus-Dark
     success "Papirus-Dark Icons installiert und auf Violet gesetzt"
 
-    info "Installiere Bibata-Modern-Classic Cursor..."
-    local BIBATA_VER
-    BIBATA_VER=$(curl -sf https://api.github.com/repos/ful1e5/Bibata_Cursor/releases/latest \
-        | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])" 2>/dev/null || echo "v2.0.7")
-    curl -Lo /tmp/bibata.tar.xz \
-        "https://github.com/ful1e5/Bibata_Cursor/releases/download/${BIBATA_VER}/Bibata-Modern-Classic.tar.xz" 2>/dev/null
-    if [[ -f /tmp/bibata.tar.xz ]]; then
-        tar -xJf /tmp/bibata.tar.xz -C /usr/share/icons/ 2>/dev/null || true
-        rm -f /tmp/bibata.tar.xz
-        success "Bibata-Modern-Classic Cursor installiert"
-    else
-        warn "Bibata Cursor nicht verfügbar — nutze Adwaita"
-    fi
-
-    # Cursor systemweit setzen
+    # --- Cursor Theme: Adwaita (Gnome Default) ---
+    info "Setze Adwaita Cursor als Standard..."
+    # Adwaita ist der Standard-Gnome-Cursor und sollte auf Debian-Systemen verfügbar sein.
     sudo mkdir -p /usr/share/icons/default
     sudo tee /usr/share/icons/default/index.theme > /dev/null << 'EOF'
 [Icon Theme]
-Inherits=Bibata-Modern-Classic
+Inherits=Adwaita
 EOF
+    success "Adwaita Cursor als Standard gesetzt"
 
     # Theme ermitteln
-    local GTK_THEME="Orchis-Purple-Dark"
-    [[ ! -d /usr/share/themes/Orchis-Purple-Dark ]] && GTK_THEME="Adwaita-dark"
+    local GTK_THEME="Catppuccin-Mocha-Standard-Lavender"
+    # Fallback, falls Catppuccin-Installation fehlschlägt
+    [[ ! -d "/usr/share/themes/${GTK_THEME}" ]] && GTK_THEME="Adwaita-dark"
     local ICON_THEME="Papirus-Dark"
-    local CURSOR_THEME="Bibata-Modern-Classic"
-    [[ ! -d /usr/share/icons/Bibata-Modern-Classic ]] && CURSOR_THEME="Adwaita"
+    local CURSOR_THEME="Adwaita"
 
     # GTK2 Config
     cat > "$TARGET_HOME/.gtkrc-2.0" << GEOF
