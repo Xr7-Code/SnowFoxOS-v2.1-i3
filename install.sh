@@ -211,8 +211,7 @@ then
     
     export TARGET_USER USER_PASS ROOT_PASS TARGET_DISK
     
-    # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
-    chroot /mnt/target /bin/bash << EOF
+    chroot /mnt/target /bin/bash <<'EOF'
 useradd -m -s /bin/bash "${TARGET_USER}"
 echo "${TARGET_USER}:${USER_PASS}" | chpasswd
 echo "root:${ROOT_PASS}" | chpasswd
@@ -255,8 +254,7 @@ then
     
     export TARGET_USER USER_PASS ROOT_PASS EFI_PARTITION TARGET_DISK_GRUB
     
-    # 'EOF' darf nicht in Anführungszeichen stehen, damit die Variablen expandiert werden
-    chroot /mnt/target /bin/bash << EOF
+    chroot /mnt/target /bin/bash <<'EOF'
 useradd -m -s /bin/bash "${TARGET_USER}"
 echo "${TARGET_USER}:${USER_PASS}" | chpasswd
 echo "root:${ROOT_PASS}" | chpasswd
@@ -451,7 +449,7 @@ apt-get install -y \
     i3 i3status i3lock polybar rofi dunst libnotify-bin \
     libappindicator3-1 libayatana-appindicator3-1 feh \
     xdg-desktop-portal xdg-desktop-portal-gtk libdbusmenu-gtk3-4 \
-    redshift scrot brightnessctl playerctl \
+    redshift scrot brightnessctl playerctl xsettingsd \
     network-manager network-manager-gnome bluez \
     fonts-inter fonts-noto fonts-noto-color-emoji fonts-font-awesome fonts-jetbrains-mono \
     papirus-icon-theme \
@@ -1064,7 +1062,7 @@ read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-2]: "${RESET})" DEFAULT_EDITOR
 
 cat > "$CONFIG_DIR/mimeapps.list" << MEOF
 [Default Applications]
-inode/directory=pcmanfm.desktop
+inode/directory=thunar.desktop
 text/plain=$DEFAULT_EDITOR_DESKTOP
 text/x-python=$DEFAULT_EDITOR_DESKTOP
 text/x-shellscript=$DEFAULT_EDITOR_DESKTOP
