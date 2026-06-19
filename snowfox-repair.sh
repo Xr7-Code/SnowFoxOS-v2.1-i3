@@ -39,7 +39,7 @@ echo ""
 # ============================================================
 # FIX 1 — GRUB: nvidia-drm.modeset=1 entfernen (Intel-only)
 # ============================================================
-step "1/6 — GRUB bereinigen (Intel-only)"
+step "1/7 — GRUB bereinigen (Intel-only)"
 
 GRUB_FILE="/etc/default/grub"
 
@@ -72,7 +72,7 @@ fi
 # ============================================================
 # FIX 2 — i915 Kernel-Modul früh laden (Plymouth-Fix)
 # ============================================================
-step "2/6 — Intel i915 Framebuffer früh laden (Plymouth)"
+step "2/7 — Intel i915 Framebuffer früh laden (Plymouth)"
 
 # i915 in initramfs-modules eintragen damit Plymouth beim Boot funktioniert
 INITRAMFS_MODULES="/etc/initramfs-tools/modules"
@@ -99,7 +99,7 @@ update-initramfs -u 2>/dev/null && ok "initramfs neu gebaut" || warn "initramfs-
 # ============================================================
 # FIX 3 — .xinitrc neu schreiben (D-Bus vor gsettings)
 # ============================================================
-step "3/6 — .xinitrc reparieren (D-Bus Reihenfolge)"
+step "3/7 — .xinitrc reparieren (D-Bus Reihenfolge)"
 
 # Backup
 [[ -f "$TARGET_HOME/.xinitrc" ]] && \
@@ -142,7 +142,7 @@ ok ".xinitrc repariert — D-Bus läuft jetzt vor gsettings"
 # ============================================================
 # FIX 4 — xsettingsd Config erstellen falls fehlend
 # ============================================================
-step "4/6 — xsettingsd Config erstellen"
+step "4/7 — xsettingsd Config erstellen"
 
 XSETTINGSD_DIR="$TARGET_HOME/.config/xsettingsd"
 mkdir -p "$XSETTINGSD_DIR"
@@ -169,7 +169,7 @@ chown -R "$TARGET_USER:$TARGET_USER" "$XSETTINGSD_DIR"
 # ============================================================
 # FIX 5 — NetworkManager wifi.powersave Kommentar-Bug
 # ============================================================
-step "5/6 — NetworkManager Konfiguration reparieren"
+step "5/7 — NetworkManager Konfiguration reparieren"
 
 NM_POWERSAVE="/etc/NetworkManager/conf.d/99-snowfox-wifi-powersave.conf"
 if [[ -f "$NM_POWERSAVE" ]]; then
@@ -188,13 +188,68 @@ fi
 # ============================================================
 # FIX 6 — fstab noatime Idempotenz prüfen
 # ============================================================
-step "6/6 — fstab noatime-Duplikat bereinigen"
+step "6/7 — fstab noatime-Duplikat bereinigen"
 
 if grep -q "noatime,noatime" /etc/fstab; then
     sed -i 's/noatime,noatime/noatime/g' /etc/fstab
     ok "Doppeltes noatime in fstab bereinigt"
 else
     ok "fstab ist sauber"
+fi
+
+# ============================================================
+# FIX 7 — DNS-Namensauflösung reparieren
+# ============================================================
+step "7/7 — DNS / Namensauflösung reparieren"
+
+# Prüfen ob /etc/resolv.conf korrekt auf systemd-resolved zeigt
+RESOLV_TARGET=$(readlink -f /etc/resolv.conf 2>/dev/null || echo "")
+
+if [[ "$RESOLV_TARGET" != "/run/systemd/resolve/stub-resolv.conf" ]]; then
+    warn "/etc/resolv.conf ist KEIN Symlink auf systemd-resolved — wird repariert"
+    warn "(Das ist sehr wahrscheinlich der Grund warum Änderungen beim Neustart verschwinden:"
+    warn " systemd-resolved überschreibt eine eigenständige resolv.conf-Datei bei jedem Boot)"
+
+    rm -f /etc/resolv.conf
+    ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+    ok "/etc/resolv.conf neu verlinkt auf systemd-resolved Stub"
+else
+    ok "/etc/resolv.conf ist bereits korrekt verlinkt"
+fi
+
+# DNSOverTLS=yes durch opportunistic ersetzen — verhindert Total-Ausfall
+# wenn Port 853 (DoT) vom Netzwerk blockiert wird (Hotel/Firmen-WLAN etc.)
+DOT_FILE="/etc/systemd/resolved.conf.d/dns_over_tls.conf"
+
+if [[ -f "$DOT_FILE" ]]; then
+    cp "$DOT_FILE" "${DOT_FILE}.snowfox-bak"
+    cat > "$DOT_FILE" << 'EOF'
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com
+FallbackDNS=8.8.8.8 9.9.9.9
+DNSOverTLS=opportunistic
+EOF
+    ok "DNSOverTLS auf 'opportunistic' gesetzt (mit Fallback-DNS)"
+else
+    mkdir -p /etc/systemd/resolved.conf.d
+    cat > "$DOT_FILE" << 'EOF'
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com
+FallbackDNS=8.8.8.8 9.9.9.9
+DNSOverTLS=opportunistic
+EOF
+    ok "DNS-Konfiguration neu erstellt (mit Fallback)"
+fi
+
+systemctl restart systemd-resolved 2>/dev/null
+sleep 1
+
+# Funktionstest
+info "Teste Namensauflösung..."
+if getent hosts github.com &>/dev/null; then
+    ok "DNS funktioniert — github.com wurde aufgelöst"
+else
+    err "DNS funktioniert weiterhin NICHT — bitte 'resolvectl status' nach dem Reboot prüfen"
 fi
 
 # ── GTK-Configs sicherstellen ────────────────────────────────
@@ -244,6 +299,7 @@ echo -e "  ${GREEN}✓${RESET} .xinitrc: D-Bus läuft jetzt vor gsettings"
 echo -e "  ${GREEN}✓${RESET} xsettingsd.conf erstellt"
 echo -e "  ${GREEN}✓${RESET} NetworkManager: Inline-Kommentar-Bug behoben"
 echo -e "  ${GREEN}✓${RESET} fstab: noatime-Duplikat geprüft"
+echo -e "  ${GREEN}✓${RESET} DNS: resolv.conf korrekt verlinkt, DNSOverTLS=opportunistic"
 echo -e "  ${GREEN}✓${RESET} GTK/Qt Configs erstellt falls fehlend"
 echo ""
 echo -e "  ${ORANGE}${BOLD}→ Bitte neu starten: sudo reboot${RESET}"
