@@ -345,7 +345,6 @@ apt-get install -y \
     brightnessctl \
     playerctl \
     network-manager \
-    network-manager-gnome \
     bluez \
     fonts-inter \
     fonts-noto \
@@ -392,6 +391,42 @@ else
 fi
 
 systemctl enable bluetooth
+
+# Desktop-Einträge — nmtui, bluetui, pcmanfm (für Rofi)
+mkdir -p "$TARGET_HOME/.local/share/applications"
+
+cat > "$TARGET_HOME/.local/share/applications/nmtui.desktop" << 'EOF'
+[Desktop Entry]
+Name=Netzwerk
+Comment=Netzwerkverbindungen verwalten (nmtui)
+Exec=kitty -e nmtui
+Icon=network-wireless
+Type=Application
+Categories=Network;System;
+EOF
+
+cat > "$TARGET_HOME/.local/share/applications/bluetui.desktop" << 'EOF'
+[Desktop Entry]
+Name=Bluetooth
+Comment=Bluetooth-Geräte verwalten (bluetui)
+Exec=kitty -e bluetui
+Icon=bluetooth
+Type=Application
+Categories=System;
+EOF
+
+cat > "$TARGET_HOME/.local/share/applications/pcmanfm.desktop" << 'EOF'
+[Desktop Entry]
+Name=Dateien
+Comment=Dateimanager
+Exec=pcmanfm %U
+Icon=system-file-manager
+Type=Application
+Categories=System;FileManager;
+EOF
+
+chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.local/share/applications"
+success "Desktop-Einträge für Netzwerk, Bluetooth, Dateien installiert (Rofi-fähig)"
 
 # Touchpad-Config
 mkdir -p /etc/X11/xorg.conf.d
@@ -495,17 +530,17 @@ apt-get install -y \
 
 echo ""
 echo -e "${PURPLE}${BOLD}  Dateimanager:${RESET}"
-echo -e "  1) Thunar  (grafisch, empfohlen)"
+echo -e "  1) PCManFM (grafisch, leicht — empfohlen)"
 echo -e "  2) MC      (Terminal, bereits installiert)"
 echo -e "  3) Beide"
 echo ""
 read -rp "$(echo -e ${PURPLE}${BOLD}"Auswahl [1-3]: "${RESET})" FM_CHOICE
 case "$FM_CHOICE" in
-    1|3) apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs
-         success "Thunar installiert" ;;
+    1|3) apt-get install -y pcmanfm gvfs gvfs-backends
+         success "PCManFM installiert" ;;
     2)   success "MC bereits installiert" ;;
-    *)   apt-get install -y thunar thunar-archive-plugin thunar-volman gvfs
-         success "Thunar installiert (Standard)" ;;
+    *)   apt-get install -y pcmanfm gvfs gvfs-backends
+         success "PCManFM installiert (Standard)" ;;
 esac
 
 if ask_install "VLC Media Player"; then
@@ -963,6 +998,23 @@ if [[ -d "$SCRIPT_DIR/configs" ]]; then
         sed -i 's/fading = .*/fading = false;/' "$CONFIG_DIR/picom.conf"
         sed -i 's/dock = { shadow = false; }/dock = { shadow = false; }/g' "$CONFIG_DIR/picom.conf"
     fi
+
+    # i3: Dateimanager-Shortcut auf PCManFM, Netzwerk-Shortcut auf nmtui
+    I3_CONFIG_PATH="$CONFIG_DIR/i3/config"
+    if [[ -f "$I3_CONFIG_PATH" ]]; then
+        if grep -q '^bindsym \$mod+e' "$I3_CONFIG_PATH"; then
+            sed -i 's|^bindsym \$mod+e.*|bindsym $mod+e exec pcmanfm|' "$I3_CONFIG_PATH"
+        else
+            echo 'bindsym $mod+e exec pcmanfm' >> "$I3_CONFIG_PATH"
+        fi
+
+        if grep -q '^bindsym \$mod+n' "$I3_CONFIG_PATH"; then
+            sed -i 's|^bindsym \$mod+n.*|bindsym $mod+n exec kitty -e nmtui|' "$I3_CONFIG_PATH"
+        else
+            echo 'bindsym $mod+n exec kitty -e nmtui' >> "$I3_CONFIG_PATH"
+        fi
+        success "i3-Shortcuts gesetzt: \$mod+e (PCManFM), \$mod+n (nmtui)"
+    fi
 else
     warn "configs/-Verzeichnis nicht gefunden"
 fi
@@ -1066,7 +1118,7 @@ case "$DEFAULT_EDITOR" in
     *) DEFAULT_EDITOR_DESKTOP="mousepad.desktop" ;;
 esac
 
-DEFAULT_FM_DESKTOP="thunar.desktop"
+DEFAULT_FM_DESKTOP="pcmanfm.desktop"
 
 cat > "$CONFIG_DIR/mimeapps.list" << MEOF
 [Default Applications]
